@@ -1,5 +1,8 @@
 import { Bot } from "grammy";
 import "dotenv/config";
+import { handleStart } from "./handlers/start.js";
+import { handleTextExpense } from "./handlers/expense.js";
+import { handlePhoto } from "./handlers/photo.js";
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -8,14 +11,9 @@ if (!token) {
 
 const bot = new Bot(token);
 
-bot.command("start", (ctx) => {
-  ctx.reply("Olá! Eu sou o Penny 🤖. \nEnvie uma mensagem com um gasto e eu vou tentar anotar.");
-});
-
-bot.on("message:text", (ctx) => {
-  const textoRecebido = ctx.message.text;
-  ctx.reply(`Você disse: "${textoRecebido}". \n(Ainda estou aprendendo a ler gastos!)`);
-});
+bot.command("start", handleStart);
+bot.on("message:photo", handlePhoto);
+bot.on("message:text", handleTextExpense);
 
 bot.catch((err) => {
   console.error("Erro no bot:", err);

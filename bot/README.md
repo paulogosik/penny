@@ -1,6 +1,6 @@
 # PennyBot — Telegram
 
-Serviço do bot no Telegram: recebe mensagens de texto (futuramente fotos e interpretação por IA) e responde ao usuário.
+Serviço do bot no Telegram: recebe gastos por texto ou foto de recibo, prepara os dados e (fase 2) os envia ao backend para classificação por IA.
 
 ## Configuração
 
@@ -25,6 +25,22 @@ npm run dev
 - [Grammy](https://grammy.dev/)
 - `dotenv`
 
+## Estrutura
+
+```
+src/
+├── bot.ts               # orquestrador — só registra handlers
+├── types.ts             # contrato de req/res com o backend
+├── handlers/
+│   ├── start.ts         # comando /start
+│   ├── expense.ts       # mensagem de texto
+│   └── photo.ts         # foto de recibo (baixa e converte p/ base64)
+└── services/
+    └── api.ts           # cliente HTTP do backend
+```
+
 ## Estado atual
 
-- Comando `/start` e eco de mensagens de texto; persistência, categorias e integração com IA ainda não estão implementadas.
+- `/start`, handler de texto e handler de foto implementados (a foto é baixada do Telegram e convertida em base64).
+- A chamada HTTP ao backend é **fase 2**: `services/api.ts` já expõe as funções e marca com `TODO` o ponto exato da integração; enquanto isso, os handlers respondem que a categorização por IA vem em seguida.
+- Requer `BACKEND_URL` no `.env` (ver `.env.example`) quando a fase 2 for implementada.
