@@ -8,7 +8,6 @@ export async function handlePhoto(ctx: Context): Promise<void> {
 
   await ctx.replyWithChatAction("typing");
 
-  // O Telegram envia várias resoluções da mesma foto; a última é a maior.
   const maior = fotos[fotos.length - 1];
   if (!maior) return;
 

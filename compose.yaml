@@ -1,0 +1,19 @@
+name: penny
+
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  bot:
+    build: ./bot
+    env_file: ./bot/.env
+    environment:
+      BACKEND_URL: http://backend:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

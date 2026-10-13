@@ -1,16 +1,15 @@
 {
-  "name": "penny",
+  "name": "penny-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Bot do Telegram do PennyBot — registra gastos por texto ou foto de recibo",
   "type": "module",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --loader ts-node/esm src/bot.ts"
+    "dev": "node --loader ts-node/esm src/bot.ts",
+    "build": "tsc",
+    "start": "node dist/bot.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "dotenv": "^17.2.3",
     "grammy": "^1.41.1"

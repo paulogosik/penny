@@ -20,7 +20,6 @@ public class GeminiService {
     private final String model;
     private final String apiKey;
 
-    // TODO — persistencia: no futuro estas categorias virao do banco (gerenciadas pelo usuario no painel).
     private static final List<String> CATEGORIAS = List.of(
         "Mercado", "Restaurante", "Transporte", "Moradia", "Saude",
         "Lazer", "Educacao", "Compras", "Servicos", "Outros"
