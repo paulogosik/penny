@@ -14,7 +14,6 @@ public class ExpenseService {
 
     public ExpenseResponse classifyText(String text) {
         ExpenseResponse classified = geminiService.classify(text);
-        // TODO — persistencia: salvar o gasto via ExpenseRepository antes de retornar.
         return classified;
     }
 }

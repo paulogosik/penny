@@ -19,6 +19,15 @@ npm install
 npm run dev
 ```
 
+## Build de produção
+
+```bash
+npm run build   # compila src/ para dist/
+npm start       # roda dist/bot.js
+```
+
+No Docker, o `Dockerfile` faz exatamente isso em duas etapas (build e runtime só com dependências de produção). Para subir junto com o backend, use o `compose.yaml` da raiz — ver o [README principal](../README.md).
+
 ## Stack
 
 - TypeScript (ESM)
