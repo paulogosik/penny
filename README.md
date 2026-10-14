@@ -3,7 +3,7 @@
 Assistente de finanças pessoais: você registra gastos pelo **Telegram** (texto ou foto de recibo), uma **IA** classifica automaticamente e (planejado) um **painel web** mostra dashboards e gestão.
 
 ```
-Telegram → bot (Node.js) → backend (Java/Spring Boot) → banco de dados
+Telegram → bot (Node.js) → backend (Java/Spring Boot) → PostgreSQL (Supabase)
                                    ↕
                                Gemini AI
 ```
@@ -16,7 +16,7 @@ Telegram → bot (Node.js) → backend (Java/Spring Boot) → banco de dados
 | [`backend/`](./backend/) | API REST em Java (Spring Boot) — classificação por IA e persistência. |
 | [`compose.yaml`](./compose.yaml) | Orquestração dos serviços com Docker Compose. |
 
-Um **painel admin** (renda, gastos fixos, categorias, dashboards) está planejado, mas ainda não foi iniciado.
+Um **painel admin** (renda, gastos fixos, categorias, dashboards) está planejado, mas ainda não foi iniciado. A API que ele vai consumir já está pronta no backend.
 
 ---
 
@@ -66,13 +66,32 @@ Mais detalhes em [`bot/README.md`](./bot/README.md).
 
 ## Backend (`backend/`)
 
-API REST que classifica os gastos com IA e os persiste. Padrão Controller → Service → Repository.
+API REST que classifica os gastos com IA e cuida de toda a regra de negócio. Padrão Controller → Service → Repository.
 
 **Funcionalidades**
-- `POST /api/expenses/text` — recebe um texto e devolve `{ category, amount, date, description }`, classificado pelo Google Gemini (`gemini-flash-lite-latest`) com saída JSON estruturada.
-- `GET /actuator/health` — healthcheck (Spring Boot Actuator).
+- **Gastos por texto e por foto de recibo**, classificados pelo Google Gemini (`gemini-flash-lite-latest`) com as categorias e os cartões do próprio usuário, a data no fuso dele e detecção de compras parceladas.
+- **Cartões de crédito** com fatura calculada pelo dia de fechamento e vencimento, e **parcelamentos** distribuídos nas faturas seguintes.
+- **Gastos fixos e renda mensal** gerados automaticamente todo mês.
+- **Categorias** de gasto e de renda gerenciadas pelo usuário (com orçamento mensal), **metas** de economia e **dashboard** do mês.
 - Banco **PostgreSQL no [Supabase](https://supabase.com/)**, com o schema versionado via **Flyway** em [`db/migration`](./backend/src/main/resources/db/migration/) e RLS ligado em todas as tabelas.
-- `POST /api/expenses/photo` e gravação dos gastos no banco — *em construção*.
+
+**API**
+
+Todas as rotas identificam o usuário pelo cabeçalho `X-Telegram-User-Id` (provisório, até existir login no painel). Erros seguem o formato `{ "code", "message", "fields" }`.
+
+| Rota | Uso |
+|------|-----|
+| `PUT /api/me` | Cadastro (cria as categorias padrão); idempotente |
+| `POST /api/expenses/text` · `POST /api/expenses/photo` | Registro de gasto pelo bot |
+| `/api/expenses` | Listagem paginada com filtros (`from`, `to`, `categoryId`, `creditCardId`, `billingMonth`) e CRUD |
+| `/api/installment-plans` | Compras parceladas |
+| `/api/expense-categories` · `/api/income-categories` | Categorias |
+| `/api/credit-cards` · `/api/credit-cards/{id}/statements/{yyyy-MM}` | Cartões e fatura do mês |
+| `/api/incomes` | Rendas |
+| `/api/recurring-expenses` · `/api/recurring-incomes` | Gastos fixos e renda fixa |
+| `/api/goals` | Metas |
+| `GET /api/dashboard?month=yyyy-MM` | Resumo do mês: totais, gastos por categoria vs. orçamento, faturas |
+| `GET /actuator/health` | Healthcheck |
 
 **Como rodar sem Docker**
 ```bash
@@ -85,9 +104,19 @@ cp .env.example .env   # defina GEMINI_API_KEY e as variáveis DB_*
 
 **Exemplo**
 ```bash
+curl -X PUT http://localhost:8080/api/me \
+  -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
+  -d '{"name":"Paulo"}'
+
 curl -X POST http://localhost:8080/api/expenses/text \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"gastei 45 reais no mercado"}'
+  -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
+  -d '{"text":"comprei um tênis de 600 em 6x no nubank"}'
+```
+
+**Testes**
+```bash
+cd backend
+./mvnw test   # precisa do Docker rodando: os testes sobem um PostgreSQL real com Testcontainers
 ```
 
 ---
