@@ -26,7 +26,7 @@ Cada serviço tem o próprio `Dockerfile` (build multi-stage) e o `compose.yaml`
 
 ```bash
 cp bot/.env.example bot/.env           # defina BOT_TOKEN
-cp backend/.env.example backend/.env   # defina GEMINI_API_KEY
+cp backend/.env.example backend/.env   # defina GEMINI_API_KEY e as variáveis DB_* do Supabase
 docker compose up --build
 ```
 
@@ -71,12 +71,13 @@ API REST que classifica os gastos com IA e os persiste. Padrão Controller → S
 **Funcionalidades**
 - `POST /api/expenses/text` — recebe um texto e devolve `{ category, amount, date, description }`, classificado pelo Google Gemini (`gemini-flash-lite-latest`) com saída JSON estruturada.
 - `GET /actuator/health` — healthcheck (Spring Boot Actuator).
-- `POST /api/expenses/photo` e persistência (PostgreSQL) — *planejado*.
+- Banco **PostgreSQL no [Supabase](https://supabase.com/)**, com o schema versionado via **Flyway** em [`db/migration`](./backend/src/main/resources/db/migration/) e RLS ligado em todas as tabelas.
+- `POST /api/expenses/photo` e gravação dos gastos no banco — *em construção*.
 
 **Como rodar sem Docker**
 ```bash
 cd backend
-cp .env.example .env   # defina GEMINI_API_KEY
+cp .env.example .env   # defina GEMINI_API_KEY e as variáveis DB_*
 ./mvnw spring-boot:run # sobe em http://localhost:8080
 ```
 

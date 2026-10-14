@@ -3,14 +3,18 @@ name: penny
 services:
   backend:
     build: ./backend
-    env_file: ./backend/.env
+    env_file:
+      - path: ./backend/.env
+        format: raw
     ports:
       - "8080:8080"
     restart: unless-stopped
 
   bot:
     build: ./bot
-    env_file: ./bot/.env
+    env_file:
+      - path: ./bot/.env
+        format: raw
     environment:
       BACKEND_URL: http://backend:8080
     depends_on:
