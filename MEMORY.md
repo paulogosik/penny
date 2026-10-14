@@ -11,7 +11,7 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Backend pronto** para o bot e para o painel: API completa, integrada ao Supabase, 44 testes passando, validado ao vivo com o Gemini real (texto, foto de recibo, parcelado no cartão, data relativa, fuso horário).
 - **Bot** ainda não chama o backend: `services/api.ts` lança `BackendIndisponivelError`.
 - **Painel** não iniciado (stack e autenticação indefinidos).
-- PRs abertos: **#2** (schema) e **#3** (backend, empilhado sobre o #2). Mergear o #2 primeiro.
+- PR aberto: **#3** (backend). O #2 (schema) já foi mergeado.
 - Próxima ação sugerida: **integrar o bot ao backend**.
 
 ---
@@ -57,7 +57,7 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - 44 testes (unitários + integração com Testcontainers); dois bugs plantados de propósito foram pegos pelos testes (checagem de que os testes realmente testam).
 - Smoke test ao vivo no Supabase com usuário fictício `999999001`, apagado em seguida.
 
-### PR #2 — Schema do banco no Supabase (`feat/database-schema`) — aberto em 13/10/2026
+### PR #2 — Schema do banco no Supabase (`feat/database-schema`) — mergeado em 14/10/2026 02:23 UTC
 - Supabase escolhido como Postgres gerenciado; acesso só pelo backend.
 - `V1__create_initial_schema.sql` com as 10 tabelas, constraints e índices; RLS em tudo; callback `afterMigrate.sql` para o RLS da tabela do Flyway.
 - `compose.yaml` com `env_file` em `format: raw`.
@@ -79,6 +79,7 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Supabase:** usar o Session pooler; muitas falhas de senha seguidas podem bloquear o IP — parar o backend na hora.
 - **Testes de integração exigem Docker rodando** (Testcontainers). Rodar com `cd backend && ./mvnw test` (~1 min).
 - **Smoke test ao vivo:** usar um `telegram_user_id` fictício e apagar o usuário no fim (`delete from users where telegram_user_id = ...` remove tudo em cascata).
+- **PR empilhado:** se o PR de base for mergeado sem apagar o branch, o GitHub não redireciona o PR de cima para a `main`; conferir com `gh pr view <n> --json baseRefName` e corrigir com `gh pr edit <n> --base main`.
 - **Shell do usuário é fish**, mas os comandos do Claude rodam em zsh: em zsh, `$var:...` é tratado como modificador; usar `${var}`.
 - **Python da máquina sem certificados raiz** (SSL falha em `urllib`): usar `curl` para chamadas HTTPS em scripts.
 
