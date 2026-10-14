@@ -1,5 +1,7 @@
 # PennyBot — contexto para o Claude Code
 
+> Leia também o **[`MEMORY.md`](./MEMORY.md)**: diário do projeto (o que cada PR fez, problemas encontrados, pendências e decisões em aberto). Este arquivo guarda o que é **permanente**; o `MEMORY.md` guarda o **histórico e o momento atual**.
+
 ## O que é o projeto
 
 **PennyBot** é um assistente de finanças pessoais organizado como **monorepo**, com três partes:
@@ -13,49 +15,54 @@
 1. O usuário envia ao bot uma **foto de recibo ou uma descrição de gasto** pelo Telegram.
 2. O bot repassa ao **backend**, que usa IA para classificar o gasto e o persiste.
 3. O **painel admin** permite:
-   - Cadastrar e editar categorias de gasto.
+   - Cadastrar e editar categorias de gasto e de renda.
    - Cadastrar renda mensal e gastos fixos recorrentes.
+   - Cadastrar cartões de crédito e acompanhar faturas e parcelamentos.
+   - Definir orçamento por categoria e metas de economia.
    - Visualizar dashboards e gráficos de gastos.
    - Editar ou excluir lançamentos cadastrados.
 
 O **diferencial principal** é a IA para categorização automática de gastos — as categorias são gerenciadas pelo próprio usuário no painel.
 
-## Estado atual (julho 2026)
+## Estado atual (outubro 2026)
 
-### `bot/` — estrutura completa (lado Telegram)
+### `backend/` — pronto para o bot e para o painel
+- Stack: **Java 21 (target) + Spring Boot 3.5.16 + Maven**, Spring Web, Spring Data JPA, Flyway, Bean Validation, Actuator.
+- Banco: **PostgreSQL no Supabase** (Session pooler), schema versionado com **Flyway** (`V1` schema inicial, `V2` controle de geração dos recorrentes) e **RLS ligado em todas as tabelas**.
+- API completa para o bot (cadastro no `/start`, gasto por texto e por foto) e para o painel (CRUD de categorias, gastos, rendas, cartões, parcelamentos, recorrências, metas, fatura do cartão e dashboard). Ver tabela de endpoints abaixo.
+- IA: Gemini **`gemini-flash-lite-latest`**, com categorias e cartões do próprio usuário, data no fuso do usuário, detecção de parcelas e cartão, e nova tentativa automática em erros temporários (429/5xx).
+- Gastos fixos e renda mensal são **gerados automaticamente** (agendador de hora em hora + na subida da aplicação).
+- **44 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers.
+
+### `bot/` — estrutura completa (lado Telegram), ainda não integrado ao backend
 - Stack: **Node.js + TypeScript** (ESM), **grammy** v1.41.1, **dotenv**.
-- `npm run dev` → `node --loader ts-node/esm src/bot.ts`
-- Estrutura implementada: `bot.ts` (orquestrador), `types.ts`, `handlers/{start,expense,photo}.ts`, `services/api.ts`.
+- `npm run dev` (ts-node) para desenvolvimento; `npm run build` + `npm start` (ou Docker) para produção.
 - Implementado: `/start`, handler de texto e handler de foto (baixa a foto do Telegram e converte para base64).
-- Chamada ao backend está como **TODO (fase 2)** em `services/api.ts`; por enquanto lança `BackendIndisponivelError` e os handlers respondem que a categorização vem em seguida.
-
-### `backend/` — classificação por IA funcionando (passo 3 concluído)
-- Stack: **Java 21 (target) + Spring Boot 3.5.16 + Maven**; só **Spring Web** por enquanto.
-- Estrutura: `PennyApplication`, `controller/ExpenseController`, `service/{ExpenseService,GeminiService}`, `exception/{GeminiException,ApiExceptionHandler}`, `dto/{ExpenseRequest,ExpenseResponse,ErrorResponse}` (Java records), `application.properties` (porta 8080).
-- `POST /api/expenses/text` agora **classifica de verdade** via Gemini: `ExpenseController` → `ExpenseService` → `GeminiService` (chamada HTTP ao Gemini com saída JSON estruturada). Validado ponta a ponta com `curl` (categoria, valor e data extraídos corretamente, inclusive datas relativas como "ontem").
-- Chave do Gemini lida de `backend/.env` via `spring.config.import` (sem lib externa). Modelo: **`gemini-flash-latest`**.
-- **Persistência** ainda **não implementada** (marcada com `TODO` no `ExpenseService`); `POST /api/expenses/photo` ainda não existe.
+- `services/api.ts` ainda lança `BackendIndisponivelError`; o contrato em `types.ts` está **desatualizado** em relação à API nova (ver `MEMORY.md`).
 
 ### `panel/` — não iniciado
 - Planejado; a pasta ainda não existe fisicamente. Stack não definido.
+
+### Infra
+- **Docker:** um `Dockerfile` multi-stage por serviço (`bot/`, `backend/`) e `compose.yaml` na raiz orquestrando tudo (`docker compose up --build`).
 
 ---
 
 ## Arquitetura geral
 
 ```
-Telegram → bot (Node.js) → backend (Java/Spring Boot) → banco de dados
+Telegram → bot (Node.js) → backend (Java/Spring Boot) → PostgreSQL (Supabase)
                                      ↕
                                  Gemini AI
 ```
 
-O bot é uma **camada fina**: recebe mensagens do Telegram, faz validações técnicas mínimas (mensagem não vazia, tamanho de foto aceitável) e chama o backend via HTTP. Toda lógica de negócio vive no backend.
+O bot é uma **camada fina**: recebe mensagens do Telegram, faz validações técnicas mínimas (mensagem não vazia, tamanho de foto aceitável) e chama o backend via HTTP. Toda lógica de negócio vive no backend. O painel (futuro) também consome só o backend.
 
 ---
 
-## Planejamento: `bot/`
+## `bot/`
 
-### Estrutura de pastas planejada (`bot/src/`)
+### Estrutura (`bot/src/`)
 
 ```
 bot/src/
@@ -71,132 +78,166 @@ bot/src/
 
 ### Responsabilidades do bot
 - `handlers/` — extraem dados da mensagem do Telegram e chamam `services/api.ts`.
-- `services/api.ts` — único ponto de contato com o backend; encapsula URLs e serialização.
+- `services/api.ts` — único ponto de contato com o backend; encapsula URLs, o cabeçalho `X-Telegram-User-Id` e a serialização.
 - `types.ts` — define os formatos de request/response trocados com o backend.
 - Sem lógica de IA, sem acesso a banco de dados — tudo isso fica no backend.
 
 ---
 
-## Planejamento: `backend/`
+## `backend/`
 
-### Stack definida
+### Stack
 - **Linguagem:** Java (bytecode alvo **21 / LTS**; máquina de dev tem JDK 25)
-- **Framework:** **Spring Boot 3.5.16** (linha 3.x)
-- **Módulos Spring:** Spring Web (REST API) já incluído; Spring Data JPA (ORM) entra na fase de persistência
+- **Framework:** **Spring Boot 3.5.16** (Web, Data JPA, Validation, Actuator)
+- **Banco:** PostgreSQL 17 no **Supabase**, migrations com **Flyway**
 - **Build:** Maven, com **Maven Wrapper** (`./mvnw`) commitado
-- **Banco de dados:** a definir (PostgreSQL é o candidato principal)
-- **IA:** Google Gemini `gemini-flash-latest` via chamada HTTP direta à API REST (`RestClient` do Spring)
+- **IA:** Google Gemini via chamada HTTP direta (`RestClient` do Spring)
+- **Testes:** JUnit 5, MockMvc, Testcontainers (PostgreSQL)
 
-### Estrutura de pastas planejada
+### Estrutura (`backend/src/main/java/com/penny/`)
 
 ```
-src/main/java/com/penny/
-├── PennyApplication.java          # entry point (@SpringBootApplication)
-├── controller/
-│   └── ExpenseController.java     # endpoints REST
-├── service/
-│   ├── ExpenseService.java        # orquestra o fluxo de um gasto
-│   └── GeminiService.java         # integração com Gemini AI
-├── repository/
-│   └── ExpenseRepository.java     # Spring Data JPA (acesso ao banco)
-├── model/
-│   └── Expense.java               # entidade JPA (tabela de gastos)
-└── dto/
-    ├── ExpenseRequest.java        # payload recebido do bot
-    └── ExpenseResponse.java       # resposta enviada ao bot
+├── PennyApplication.java
+├── config/       # Clock, agendamento, registro do resolver de usuário
+├── web/          # @CurrentUser + resolver do cabeçalho X-Telegram-User-Id
+├── controller/   # endpoints REST (finos: validam e delegam)
+├── service/      # regras de negócio, Gemini, cálculo de fatura, geração de recorrentes
+├── repository/   # Spring Data JPA (+ Specifications para filtros)
+├── model/        # entidades JPA (uma por tabela) + enums de origem com conversores
+├── dto/          # records de request/response
+├── exception/    # ApiException e subclasses + handler global
+└── scheduler/    # agendador dos lançamentos recorrentes
 ```
 
-### Endpoints planejados
+### Banco (10 tabelas)
+`users` · `expense_categories` · `income_categories` · `expenses` · `incomes` · `recurring_expenses` · `recurring_incomes` · `credit_cards` · `installment_plans` · `goals`
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| `POST` | `/api/expenses/text` | Recebe texto, classifica e salva |
-| `POST` | `/api/expenses/photo` | Recebe imagem base64, classifica e salva |
+### Endpoints
 
-### Fluxo de uma requisição
-1. Bot chama `POST /api/expenses/text` com `{ "text": "gastei 45 reais no mercado" }`.
-2. `ExpenseController` recebe e delega ao `ExpenseService`.
-3. `ExpenseService` chama `GeminiService` para classificar o gasto.
-4. `ExpenseService` salva via `ExpenseRepository`.
-5. Retorna `ExpenseResponse` com categoria, valor, data e descrição.
+Todas as rotas (exceto `PUT /api/me`, que cadastra) exigem o cabeçalho **`X-Telegram-User-Id`**.
+
+| Método | Rota | Uso |
+|--------|------|-----|
+| `PUT` / `GET` | `/api/me` | Cadastro idempotente (cria categorias padrão) / perfil |
+| `POST` | `/api/expenses/text` | Bot: texto → IA → gasto salvo (parcelado vira plano) |
+| `POST` | `/api/expenses/photo` | Bot: foto de recibo (base64) → IA → gasto salvo |
+| `GET` `POST` `PUT` `DELETE` | `/api/expenses` | Painel: listagem paginada com filtros e CRUD manual |
+| `GET` `POST` `DELETE` | `/api/installment-plans` | Compras parceladas |
+| `GET` `POST` `PUT` `DELETE` | `/api/expense-categories`, `/api/income-categories` | Categorias |
+| `GET` `POST` `PUT` `DELETE` | `/api/credit-cards` | Cartões |
+| `GET` | `/api/credit-cards/{id}/statements/{yyyy-MM}` | Fatura do mês |
+| `GET` `POST` `PUT` `DELETE` | `/api/incomes` | Rendas |
+| `GET` `POST` `PUT` `DELETE` | `/api/recurring-expenses`, `/api/recurring-incomes` | Gastos fixos e renda fixa |
+| `GET` `POST` `PUT` `DELETE` | `/api/goals` | Metas |
+| `GET` | `/api/dashboard?month=yyyy-MM` | Resumo do mês |
+| `GET` | `/actuator/health` | Healthcheck |
+
+Erros sempre no formato `{ code, message, fields? }`.
 
 ---
 
 ## Decisões de arquitetura
 
-- **Provider de IA: Google Gemini** — modelo `gemini-flash-latest` para texto e fotos de recibo.
-  - Chamada via HTTP direto à API REST com o `RestClient` do Spring (sem SDK Java dedicado, para simplicidade).
-  - Saída estruturada com `responseMimeType: "application/json"` **+ `responseSchema`** (força o shape `{category, amount, date, description}`).
-  - Motivo: suporte nativo a imagens, tier gratuito generoso, custo baixo para uso pessoal.
-  - **Modelo é um alias (`gemini-flash-latest`), não uma versão fixa** — decisão de julho/2026 após o `gemini-1.5-flash` ser descontinuado. O alias sempre aponta pro flash estável atual e **não dá 404 quando o Google aposenta um modelo**. Trade-off aceito: o comportamento pode mudar quando o Google atualiza o alias. Alternativas fixas que funcionam na chave de dev: `gemini-3-flash-preview`, `gemini-3.5-flash`.
-- **Backend em Java + Spring Boot** — escolhido por valor de mercado e documentação extensa.
-  - Spring Boot 3.5.16 com Maven; padrão Controller → Service → Repository.
-- **Bot como camada fina** — validações técnicas apenas (não de negócio); lógica no backend.
-- **Monorepo** (mudança em julho/2026) — bot, backend e painel vivem no **mesmo repositório**, em pastas irmãs (`bot/`, `backend/`, `panel/`). Substitui a decisão anterior de repositórios separados.
-- **Bytecode alvo Java 21** — o suporte oficial do Spring Boot ao Java 25 (instalado na máquina) ainda é recente; compilar mirando o LTS 21 evita surpresas. O app roda normalmente no JVM 25.
-- **Ordem de construção do backend** — primeiro o esqueleto que roda (endpoint com retorno fixo), depois a IA (Gemini) e a **persistência/banco por último** — o schema é consequência do que a IA extrai, não o ponto de partida.
+- **Provider de IA: Google Gemini**, modelo **`gemini-flash-lite-latest`** (decisão de outubro/2026).
+  - Chamada via HTTP direto com o `RestClient` (sem SDK), chave no cabeçalho `x-goog-api-key` (não na URL).
+  - Saída estruturada com `responseSchema`; `category` e `creditCard` são **enums com os valores do próprio usuário**.
+  - Motivo da troca: em out/2026 toda a linha Flash principal (`gemini-flash-latest`, `3-flash-preview`, `3.5`/`3.6`/`3.7`/`3.8-flash`) respondia 503 por sobrecarga; a linha Flash-Lite estava estável. Alias continua evitando 404 quando o Google aposenta versões.
+  - Nova tentativa automática (até 3, backoff 1s/2s) em 429/500/502/503/504; erros 4xx não são repetidos.
+  - A IA fica atrás da interface `ExpenseClassifier` (implementação `GeminiExpenseClassifier`), o que permite um classificador falso nos testes.
+  - A chamada à IA acontece **fora da transação** do banco (`TransactionTemplate` só para persistir), para não segurar conexão do pool (5 conexões) por até 60s.
+- **Backend em Java + Spring Boot** — padrão Controller → Service → Repository.
+- **Bot como camada fina** — validações técnicas apenas; lógica no backend.
+- **Monorepo** — bot, backend e painel no mesmo repositório, em pastas irmãs.
+- **Bytecode alvo Java 21** — o app roda normalmente no JVM 25 da máquina de dev; no Docker roda em JRE 21.
+- **Docker:** um `Dockerfile` multi-stage **por serviço** + `compose.yaml` na raiz como orquestrador único. Container único rodando tudo foi descartado (anti-padrão: imagem com Node + Java, sem reinício/escala independentes).
+- **Banco: PostgreSQL no Supabase, acessado só pelo backend.** O Supabase é usado como Postgres gerenciado; bot e painel nunca falam com o banco direto.
+  - **RLS ligado em todas as tabelas, sem políticas:** bloqueia a API pública do Supabase (chave anon); o backend conecta como dono das tabelas e não é afetado.
+  - Conexão pelo **Session pooler** (IPv4); a conexão direta do plano gratuito é só IPv6.
+  - **Schema só por Flyway** (`backend/src/main/resources/db/migration`), nunca pelo painel do Supabase. `ddl-auto=validate`: o Hibernate valida as entidades contra o schema ao subir.
+- **Modelo de dados:**
+  - **Vários usuários desde o início**, todos nas mesmas tabelas com `user_id` (padrão multi-tenant por coluna).
+  - **Gastos e rendas em tabelas separadas** (`expenses`/`incomes`), cada um com categorias e recorrências próprias — decisão do usuário, por organização.
+  - **Categorias padrão** criadas no cadastro: 9 de gasto + **"Outros"** (`is_fallback`, não pode ser removida, só renomeada) e 1 de renda (**"Salário"**).
+  - **"Remover" categoria/cartão:** se tem lançamentos, é **arquivado** (some da IA e do painel, histórico intacto); se nunca foi usado, é apagado.
+  - **Parcelamento:** `installment_plans` + uma linha em `expenses` por parcela. A última parcela absorve a diferença de centavos. Parcela não é editada/removida sozinha — só o plano inteiro.
+  - **Mês da fatura (`billing_month`)** = primeiro dia do **mês de vencimento**. Compra até o dia de fechamento entra na fatura que fecha naquele mês; vencimento cai no mesmo mês se `due_day > closing_day`, senão no seguinte.
+  - **Cada gasto guarda `occurred_on` (data da compra) e `billing_month` (fatura).** O dashboard soma por `occurred_on`; a fatura soma por `billing_month`.
+  - **Recorrentes viram lançamentos reais** quando o dia chega (dia 31 em mês de 30 dias → último dia). `last_generated_month` impede que um lançamento apagado pelo usuário seja recriado.
+  - **Pagar a fatura não gera gasto** (as compras já foram registradas).
+  - Valores em `numeric(12,2)` ↔ `BigDecimal`.
+- **Identificação do usuário:** cabeçalho `X-Telegram-User-Id`, resolvido para `@CurrentUser User` num único `HandlerMethodArgumentResolver`. **Provisório** até existir login no painel — a troca fica concentrada nesse resolver.
+- **Fuso horário por usuário** (`users.timezone`, padrão `America/Sao_Paulo`): "hoje" é calculado no fuso do usuário com um `Clock` injetável (o container roda em UTC).
 
 ## Decisões de estrutura
-- `LICENSE` e `README.md` (visão geral, uma seção por subprojeto) ficam na raiz do monorepo; cada subprojeto tem seu próprio `README.md`.
-- `.gitignore` do backend fica em `backend/.gitignore` (ignora `target/` etc.).
-- Variáveis de ambiente do bot ficam em `bot/.env` (baseado em `bot/.env.example`); inclui `BACKEND_URL`.
-- Variáveis do backend ficam em `application.properties` / variáveis de ambiente.
-- **`backend/.env`** (com `GEMINI_API_KEY`) é lido nativamente pelo Spring via `spring.config.import=optional:file:.env[.properties]` — sem lib `dotenv`. Ignorado no `.gitignore`; template versionado em `backend/.env.example`. Variável de ambiente do sistema tem prioridade sobre o `.env`. ⚠️ Rodar o backend a partir da pasta `backend/` (caminho `file:.env` é relativo ao diretório de execução).
+- `LICENSE` e `README.md` (visão geral) na raiz; cada subprojeto tem seu `README.md`.
+- `.gitignore` da raiz é próprio do monorepo; o backend tem também o seu (`backend/.gitignore`).
+- Variáveis de ambiente: `bot/.env` (`BOT_TOKEN`, `BACKEND_URL`) e `backend/.env` (`GEMINI_API_KEY`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`), com templates `.env.example`.
+- **`DB_URL` no formato JDBC, sem credenciais:** `jdbc:postgresql://<host-do-session-pooler>:5432/postgres?sslmode=require`; usuário e senha só em `DB_USERNAME`/`DB_PASSWORD`.
+- O Spring lê `backend/.env` via `spring.config.import=optional:file:.env[.properties]` (rodar a partir de `backend/`). No Docker, o Compose injeta as variáveis com **`env_file` em `format: raw`** (sem interpolar `$`).
+- Testes usam o profile `test` (`src/test/resources/application-test.properties`), com agendador desligado.
 
 ---
 
-## Bibliotecas e dependências (adicionadas em julho/2026)
-- **Backend — Spring Boot 3.5.16** (`spring-boot-starter-web`, `spring-boot-starter-test`): versão real mais recente da linha 3.x confirmada no Maven Central; só o starter web por enquanto (JPA entra na fase de persistência).
-- **Maven Wrapper (`./mvnw`)** commitado no backend: permite rodar sem Maven instalado e fixa a versão do Maven para todos.
-- **Passo 3 não adicionou dependência nova:** a chamada HTTP ao Gemini usa o `RestClient` do Spring e o parse usa o Jackson (`ObjectMapper`/`JsonNode`) — ambos já vêm do `spring-boot-starter-web`. Idem para leitura do `.env` (`spring.config.import`, recurso nativo). Fiel à filosofia de simplicidade / sem SDK dedicado.
+## Bibliotecas e dependências
+- **Spring Boot 3.5.16:** `starter-web`, `starter-data-jpa`, `starter-validation`, `starter-actuator`, `starter-test`.
+- **Flyway** (`flyway-core` + `flyway-database-postgresql`): schema versionado e aplicado na subida.
+- **Driver PostgreSQL** (`org.postgresql:postgresql`).
+- **Actuator:** expõe `/actuator/health` para o healthcheck do Docker (o bot só sobe com o backend saudável).
+- **Testcontainers** (`spring-boot-testcontainers`, `junit-jupiter`, `postgresql`): testes de integração contra Postgres 17 real (requer Docker).
+- **Maven Wrapper (`./mvnw`)** commitado.
+- Sem SDK do Gemini e sem lib de `.env`: `RestClient` + Jackson + `spring.config.import`.
 
 ## Padrões de código
-- **Bot:** imports relativos em ESM/`nodenext` usam extensão `.js` (ex.: `./services/api.js`), mesmo apontando para arquivos `.ts`.
-- **Bot:** o ponto de integração com o backend (fase 2) fica isolado em `services/api.ts`, marcado com `TODO` e lançando `BackendIndisponivelError` enquanto não existe.
-- **Backend:** DTOs são **Java records** (`ExpenseRequest`, `ExpenseResponse`).
-- **Backend:** pontos ainda não implementados ficam marcados com `// TODO — passo N` no lugar exato (ex.: persistência no `ExpenseService`, categorias vindas do banco no `GeminiService`).
-- **Backend:** erros de integração com o Gemini usam exceção própria (`GeminiException`) tratada num `@RestControllerAdvice` (`ApiExceptionHandler`) que devolve **HTTP 502** com `ErrorResponse` (`{ error }`) — o bot recebe um JSON de erro limpo em vez de stacktrace.
-- **Backend:** o `GeminiService` retorna direto um `ExpenseResponse` (sem camada de mapeamento extra enquanto não há persistência); a lista de categorias fica hardcoded no service com `TODO` marcando que virá do banco.
-- Comentários `TODO` de fase/integração são permitidos (foram pedidos explicitamente); a regra de "não comentar código existente" segue valendo para o resto.
+- **Sem comentários no código**, em nenhum arquivo (inclusive testes e configs). Pendências ficam no `MEMORY.md`, não em `TODO` no código.
+- **Commits e PRs só no nome do usuário:** nunca adicionar `Co-Authored-By` nem "Generated with Claude Code".
+- **Bot:** imports relativos em ESM/`nodenext` usam extensão `.js`.
+- **Backend:**
+  - DTOs são **Java records**, com `static from(entidade)` nos de resposta.
+  - Controllers finos: `@Valid` no corpo, `@CurrentUser User` para o usuário, delegam ao service.
+  - Services com `@Transactional` (`readOnly` nas leituras); o mapeamento para DTO acontece **dentro** da transação (`open-in-view=false`).
+  - Toda busca por id é escopada ao usuário (`findByIdAndUser`); recurso de outro usuário responde 404.
+  - Erros de negócio via `ApiException` e subclasses (`NotFoundException` 404, `ConflictException` 409, `BusinessRuleException` 422, `GeminiException` 502), sempre com `code` estável em inglês e `message` em português.
+  - Enums gravados como texto minúsculo no banco via `AttributeConverter` e serializados com `@JsonValue`.
+  - Colunas `smallint` mapeadas como `Integer` com `@JdbcTypeCode(SqlTypes.SMALLINT)`.
+  - Datas "de hoje" sempre via `Clock` injetado + fuso do usuário, nunca `LocalDate.now()` puro.
+- **Testes:** classe base `IntegrationTest` (MockMvc + Testcontainers + `FakeExpenseClassifier` + `MutableClock`); cada teste cria seu próprio usuário com ID único em vez de limpar o banco.
 
 ## Problemas e soluções
-- **JDK 25 na máquina x suporte do Spring Boot:** o JDK instalado é o 25, mas o suporte oficial ainda é recente → compilamos mirando o bytecode **Java 21 (LTS)**; o app roda normalmente no JVM 25.
-- **`amount` como `double` no `ExpenseResponse`:** ok para o stub, mas para valores monetários o ideal é migrar para `BigDecimal` quando entrar a persistência.
-- **README linkava `panel/` inexistente:** a pasta não existe fisicamente; o link foi removido e o painel virou uma menção de "planejado".
-- **`gemini-1.5-flash` descontinuado (404):** o modelo saiu do ar. Investigando a chave via `ListModels` + testes de `generateContent`: os modelos 2.0 dão `429 RESOURCE_EXHAUSTED` e os 2.5 estão **bloqueados para chaves novas** (404 "no longer available to new users"). Solução: adotar o alias **`gemini-flash-latest`** (testado, funciona ponta a ponta). ⚠️ Atenção a `429` nos modelos 2.0 caso o free tier se esgote.
-- **Spring Boot não lê `.env` nativamente como o bot:** resolvido com `spring.config.import=optional:file:.env[.properties]` (sem lib) em vez de setar a variável no shell a cada boot.
-- **Fish faz glob de `[...]` e `^` em one-liners:** ao rodar scripts de teste, comandos Python inline quebravam no shell; solução foi escrever os scripts em arquivo no scratchpad e rodar com `python3 arquivo.py`.
+- **JDK 25 na máquina x suporte do Spring Boot:** compilamos mirando **Java 21 (LTS)**.
+- **`gemini-1.5-flash` descontinuado (404) e linha 2.5 bloqueada para chaves novas:** migramos para aliases. Em out/2026 a linha Flash principal ficou sobrecarregada (503) → `gemini-flash-lite-latest` + nova tentativa automática.
+- **Spring Boot não lê `.env` nativamente:** `spring.config.import=optional:file:.env[.properties]`.
+- **Fish faz glob de `[...]` e `^` em one-liners:** scripts de teste em arquivo no scratchpad.
+- **Docker Desktop reinicia sozinho ao atualizar:** um `docker` falhando logo após o build pode ser isso; esperar o daemon voltar.
+- **Container em UTC gravava "hoje" com a data de amanhã após as 21h:** fuso por usuário + `Clock` injetável.
+- **Supabase: conexão direta é só IPv6:** usar o Session pooler (IPv4).
+- **Senha com `$` chegava cortada no container:** o Compose interpola `$` no `env_file` → `format: raw`.
+- **`DB_URL` colado no formato `postgresql://usuario:senha@host`:** o Spring exige JDBC sem credenciais; ao validar o `.env`, separar pelo **último** `@` (senhas podem conter `@`) e nunca imprimir valores.
+- **`ALTER TABLE flyway_schema_history` dentro de migration trava** (o Flyway mantém a tabela em uso) → RLS da tabela do Flyway via callback `afterMigrate.sql`.
+- **`docker compose logs` mostra logs de execuções antigas** se o container só reiniciou: usar `--force-recreate` e `--since`.
+- **Backend em loop de falha de senha** pode levar o Supabase a bloquear o IP: parar o container (`docker compose stop backend`) assim que o erro aparecer.
 
 ---
 
 ## Próximos passos
-
-### Bot
-- ✅ Estrutura de pastas, handlers (`start`/`expense`/`photo`) e `services/api.ts` criados.
-- Fase 2: implementar a chamada HTTP real ao backend em `services/api.ts` (hoje é `TODO`).
-- Considerar extrair o `formatarGasto` duplicado (`expense.ts` e `photo.ts`) para um único lugar.
-
-### Backend
-- ✅ Scaffold com `POST /api/expenses/text` (retorno fixo) rodando e validado.
-- ✅ **Passo 3:** `GeminiService` (classificação com saída JSON estruturada) e `ExpenseService` implementados e validados; controller delega ao service.
-- Implementar `POST /api/expenses/photo` (imagem base64) — próximo passo natural.
-- Depois: definir banco, entidade `Expense`, `ExpenseRepository` e integrar persistência (remover o `TODO` do `ExpenseService`).
-- Futuro: categorias do `GeminiService` deixarem de ser hardcoded e virem do banco (geridas no painel).
-
-### Geral
-- Definir o banco de dados (PostgreSQL é o candidato).
-- Avaliar `BigDecimal` para valores monetários na fase de persistência.
+Detalhes e status em [`MEMORY.md`](./MEMORY.md).
+- **Bot:** integrar ao backend (`PUT /api/me` no `/start`, `X-Telegram-User-Id`, texto e foto, tratar códigos de erro); atualizar `types.ts`; extrair o `formatarGasto` duplicado.
+- **Painel:** definir stack e autenticação; consumir a API existente.
+- **Backend:** autenticação real (trocar o resolver de usuário), chave de API entre bot e backend, recibos no Supabase Storage (`receipt_path`), deploy.
 
 ---
 
 ## Instruções para o Claude
 
-- Provider de IA definido: **Google Gemini** (modelo atual: `gemini-flash-latest`). Não sugerir outros providers.
+- Provider de IA definido: **Google Gemini** (modelo atual: `gemini-flash-lite-latest`). Não sugerir outros providers.
 - **Monorepo:** bot, backend e painel vivem no mesmo repositório (pastas irmãs). Não sugerir separar em repositórios distintos.
 - O bot usa ESM (`"type": "module"`); manter compatibilidade ao adicionar dependências.
 - O painel ainda não tem stack definido — não assumir framework sem perguntar.
 - O backend usa **Spring Boot 3.5.16 com Maven**, bytecode alvo **Java 21**; DTOs como Java records. Não sugerir outros frameworks Java.
-- Não adicionar comentários ao código existente a menos que explicitamente pedido.
+- **Não escrever comentários** em nenhum código; não remover comentários existentes sem pedido explícito.
+- Mudanças de schema **sempre** por nova migration Flyway (`V<n>__descricao.sql`), nunca editando uma já aplicada.
+- Nunca imprimir valores de `.env` (senhas, tokens, chaves) em comandos ou respostas.
+- Commits e PRs **sem** `Co-Authored-By` e sem menção ao Claude; trabalhar em branch e abrir PR para o usuário mergear.
+- **A cada PR criado:** atualizar este `CLAUDE.md` (se algo permanente mudou) e o **`MEMORY.md`** (sempre), e espelhar as mudanças no `AGENTS.md`.
 
 ---
 

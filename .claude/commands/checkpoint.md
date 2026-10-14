@@ -14,5 +14,6 @@ Siga estas regras:
 4. Se alguma seção não tiver conteúdo novo nessa sessão, **não a inclua**.
 5. Use português para todo o conteúdo adicionado.
 6. Seja conciso: prefira bullet points a parágrafos longos.
-7. **Replique as mesmas alterações no `AGENTS.md`** — ele espelha o `CLAUDE.md` para o Codex (só muda "Claude" → "Codex" no título e em "Instruções para o ...").
-8. Após atualizar, confirme ao usuário o que foi adicionado/alterado.
+7. **Atualize o `MEMORY.md`**: a seção "Onde paramos", as pendências e, se houver, as armadilhas novas.
+8. **Replique as mesmas alterações no `AGENTS.md`** — ele espelha o `CLAUDE.md` para o Codex (só muda "Claude" → "Codex" no título e em "Instruções para o ...").
+9. Após atualizar, confirme ao usuário o que foi adicionado/alterado.
