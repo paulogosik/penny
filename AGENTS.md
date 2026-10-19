@@ -47,6 +47,8 @@ O **diferencial principal** é a IA para categorização automática de gastos �
 
 ### Infra
 - **Docker:** um `Dockerfile` multi-stage por serviço (`bot/`, `backend/`) e `compose.yaml` na raiz orquestrando tudo (`docker compose up --build`).
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) em todo PR e push na `main`, com os jobs `backend` (`./mvnw verify`), `bot` (`npm ci` + build) e `docker` (build das duas imagens). A `main` exige os três verdes para merge.
+- **CD:** ainda não existe — depende de escolher a hospedagem (ver `MEMORY.md`).
 
 ---
 
@@ -179,6 +181,7 @@ Erros sempre no formato `{ code, message, fields? }`.
   - Capturado pelo botão nativo do Telegram (`request_contact`); o bot só aceita se `contact.user_id` for de quem enviou (impede compartilhar o contato de outra pessoa).
   - Guardado normalizado em **E.164** (`+5511987654321`), **único** por conta; a chave interna continua sendo o UUID (o número pode mudar — é só compartilhar de novo).
   - O ID do Telegram continua sendo como o bot identifica a pessoa em cada mensagem (o Telegram não envia o telefone nas mensagens).
+- **CI no GitHub Actions** (decisão de out/2026): grátis porque o repositório é público; jobs paralelos e sem segredos (classificador falso + Testcontainers); actions fixadas por versão principal (`checkout@v7`, `setup-java@v6`, `setup-node@v7`, `upload-artifact@v7`); `permissions: contents: read`; runs antigos do mesmo PR são cancelados. Proteção da `main` exige `backend`, `bot` e `docker` verdes, sem exigir review (o dono não pode aprovar o próprio PR) e permitindo bypass do admin.
 - **Login do painel (planejado, não implementado):** a pessoa digita o telefone no site → o backend manda um **código de 6 dígitos pelo Telegram** (via Bot API, `sendMessage` no chat da pessoa) → ela digita o código e entra. Código com validade de 5 min, uso único, até 5 tentativas, limite de pedidos e guardado com hash. Telefone sozinho nunca libera acesso. Sem número cadastrado, o site manda a pessoa abrir o bot.
 - **Fuso horário por usuário** (`users.timezone`, padrão `America/Sao_Paulo`): "hoje" é calculado no fuso do usuário com um `Clock` injetável (o container roda em UTC).
 
@@ -219,6 +222,7 @@ Erros sempre no formato `{ code, message, fields? }`.
   - Colunas `smallint` mapeadas como `Integer` com `@JdbcTypeCode(SqlTypes.SMALLINT)`.
   - Datas "de hoje" sempre via `Clock` injetado + fuso do usuário, nunca `LocalDate.now()` puro.
 - **Testes:** classe base `IntegrationTest` (MockMvc + Testcontainers + `FakeExpenseClassifier` + `MutableClock`); cada teste cria seu próprio usuário com ID único em vez de limpar o banco.
+- **CI:** testes nunca podem depender de segredos ou serviços externos reais (Gemini, Supabase, Telegram) — senão quebram no GitHub Actions. Um PR só vai para merge com o CI verde.
 
 ## Problemas e soluções
 - **JDK 25 na máquina x suporte do Spring Boot:** compilamos mirando **Java 21 (LTS)**.
@@ -239,6 +243,7 @@ Erros sempre no formato `{ code, message, fields? }`.
 ## Próximos passos
 Detalhes e status em [`MEMORY.md`](./MEMORY.md).
 - **Painel (segundo momento):** definir stack; login com código pelo Telegram; consumir a API existente.
+- **CD:** escolher hospedagem (bot precisa de processo sempre ligado), publicar imagens no GHCR e fazer deploy a cada merge na `main`.
 - **Backend:** rotas do login por código + sessão do painel (trocar o resolver de usuário), chave de API entre bot e backend, recibos no Supabase Storage (`receipt_path`), deploy.
 - **Bot:** hoje cartões só são criados pela API (o painel ainda não existe), então compras parceladas pelo bot dependem disso.
 

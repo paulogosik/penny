@@ -1,5 +1,7 @@
 # PennyBot
 
+[![CI](https://github.com/paulogosik/penny/actions/workflows/ci.yml/badge.svg)](https://github.com/paulogosik/penny/actions/workflows/ci.yml)
+
 Assistente de finanças pessoais: você registra gastos pelo **Telegram** (texto ou foto de recibo), uma **IA** classifica automaticamente e (planejado) um **painel web** mostra dashboards e gestão.
 
 ```
@@ -123,6 +125,20 @@ curl -X POST http://localhost:8080/api/expenses/text \
 cd backend
 ./mvnw test   # precisa do Docker rodando: os testes sobem um PostgreSQL real com Testcontainers
 ```
+
+---
+
+## Integração contínua
+
+Cada PR e cada push na `main` rodam o workflow [`ci.yml`](./.github/workflows/ci.yml) no GitHub Actions, com três verificações em paralelo:
+
+| Job | O que verifica |
+|-----|----------------|
+| `backend` | `./mvnw verify`: todos os testes (inclusive os de integração com PostgreSQL via Testcontainers) e o empacotamento |
+| `bot` | `npm ci` e compilação do TypeScript |
+| `docker` | Build das imagens do backend e do bot |
+
+O CI não precisa de nenhum segredo: os testes usam um classificador de IA falso e um banco descartável. A `main` só aceita merge com as três verificações verdes.
 
 ---
 
