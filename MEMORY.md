@@ -10,8 +10,10 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 - **Bot integrado ao backend:** `/start` cadastra e pede o telefone (obrigatório), depois conversa livre por texto e foto. Validado de ponta a ponta com um simulador de mensagens contra backend, Supabase e Gemini reais.
 - **Backend:** 50 testes passando; migration **V3** (telefone) aplicada no Supabase.
+- **CI no GitHub Actions** (PR #5): jobs `backend`, `bot` e `docker` em todo PR; `main` protegida exigindo os três verdes.
 - **Painel** fica para um segundo momento (decisão do usuário). Login já desenhado: código pelo Telegram.
-- PR aberto: **#4** (integração do bot + telefone). #1, #2 e #3 mergeados.
+- **CD** fica para quando chegarmos no deploy (decisão do usuário).
+- PR aberto: **#5** (CI). #1 a #4 mergeados.
 - Próxima ação sugerida: o usuário testar no Telegram real; depois, decidir entre começar o painel ou permitir cadastrar cartão pelo bot.
 
 ---
@@ -23,6 +25,11 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - `POST /api/auth/verify` `{ phoneNumber, code }` → sessão do painel; trocar `CurrentUserArgumentResolver` para aceitar a sessão.
 - Regras: validade de 5 min, uso único, até 5 tentativas, limite de pedidos por telefone, código guardado com hash, mensagem "se não foi você, ignore".
 - O backend vai precisar do `BOT_TOKEN` no `.env` dele.
+
+### CD (deploy contínuo) — adiado
+- Falta escolher a hospedagem. O bot usa long polling, então precisa de um processo sempre ligado (VPS, Railway, Fly.io...; quase todas com custo mensal).
+- Plano: a cada merge na `main`, gerar as imagens, publicar no GHCR e atualizar o servidor. Segredos no GitHub Secrets ou no painel da hospedagem.
+- Rodando bot + backend juntos (como no `compose.yaml`), o backend não precisa ficar exposto na internet, o que contorna a falta de autenticação até o painel existir.
 
 ### Cartões sem painel
 - Hoje cartões só são criados pela API (`POST /api/credit-cards`). Sem cartão, "comprei X em 6x" responde `INSTALLMENTS_REQUIRE_CREDIT_CARD` mandando cadastrar "no painel", que ainda não existe. Opções: cadastrar o cartão pelo bot ("meu cartão Nubank fecha dia 3 e vence dia 10") ou esperar o painel.
@@ -49,7 +56,13 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 ## Histórico de PRs
 
-### PR #4 — Integração do bot + telefone obrigatório (`feat/bot-integration`) — aberto em 18/10/2026
+### PR #5 — CI no GitHub Actions (`ci/github-actions`) — aberto em 18/10/2026
+- `.github/workflows/ci.yml`: jobs paralelos `backend` (`./mvnw -B -ntp verify`, relatórios do Surefire como artefato em caso de falha), `bot` (`npm ci` + `npm run build`) e `docker` (build das imagens), em PR, push na `main` e execução manual.
+- Sem segredos; `permissions: contents: read`; cancela runs antigos do mesmo PR (mas não os da `main`).
+- Selo de CI e seção "Integração contínua" no README.
+- Proteção da `main`: exige `backend`, `bot` e `docker` verdes; sem review obrigatório; admin pode fazer bypass.
+
+### PR #4 — Integração do bot + telefone obrigatório (`feat/bot-integration`) — mergeado em 19/10/2026 02:04 UTC
 - Backend: migration **V3** (`users.phone_number`, E.164, único), `PUT /api/me/phone` com normalização, regra `PHONE_NUMBER_REQUIRED` nas rotas de gasto do bot, 6 testes novos (50 no total).
 - Bot: cliente HTTP real (`ApiError` com `status`/`code`, timeout de 90s), cadastro no `/start` com pedido de telefone e explicação do motivo (login no painel sem senha), botão nativo de compartilhar contato, recusa de contato de outra pessoa, gastos por texto e foto, mensagens centralizadas em `messages.ts` (fim do `formatarGasto` duplicado), `createBot()` separado do entrypoint, desligamento limpo no `SIGTERM`.
 - Validação: simulador com `bot.handleUpdate` cobrindo 13 cenários (cadastro, contato próprio/alheio, gasto simples, parcelado, cartão, sem valor, comando inexistente, foto) contra backend + Supabase + Gemini reais; usuário fictício `999999002` apagado no fim.
@@ -87,6 +100,7 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Testes de integração exigem Docker rodando** (Testcontainers). Rodar com `cd backend && ./mvnw test` (~1 min).
 - **Smoke test ao vivo:** usar um `telegram_user_id` fictício e apagar o usuário no fim (`delete from users where telegram_user_id = ...` remove tudo em cascata).
 - **Testar o bot sem o Telegram:** `createBot(token, { botInfo })` + `bot.api.config.use(...)` para capturar `sendMessage`/`getFile` + `bot.handleUpdate(update)` com mensagens fabricadas; interceptar o `fetch` de `api.telegram.org/file/` para devolver uma imagem local. Funciona com token falso, sem conflitar com o bot real rodando.
+- **Plugins da Cloud Humans desligados neste projeto** (18/10/2026): `.claude/settings.local.json` (local, fora do Git) com `syncClaudeAiPlugins: false`, `syncClaudeAiSkills: false` e `disableClaudeAiConnectors: true`. Vale só para sessões nesta pasta; os projetos do trabalho seguem iguais. O hook do plugin `ch-engineering` ligava um monitor de comentários de PR que é inútil aqui (ignora comentários do próprio usuário). Conferir na próxima sessão se o app desktop respeitou as chaves.
 - **Imagem de recibo para teste:** `qlmanage -t -s 900 -o <dir> recibo.txt` gera um PNG a partir de um texto (macOS).
 - **PR empilhado:** se o PR de base for mergeado sem apagar o branch, o GitHub não redireciona o PR de cima para a `main`; conferir com `gh pr view <n> --json baseRefName` e corrigir com `gh pr edit <n> --base main`.
 - **Shell do usuário é fish**, mas os comandos do Claude rodam em zsh: em zsh, `$var:...` é tratado como modificador; usar `${var}`.
