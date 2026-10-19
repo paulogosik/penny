@@ -1,9 +1,11 @@
 import type { Context } from "grammy";
+import { responderErro } from "./errors.js";
+import { iniciarCadastro } from "./onboarding.js";
 
 export async function handleStart(ctx: Context): Promise<void> {
-  await ctx.reply(
-    "Olá! Eu sou o Penny 🤖.\n\n" +
-      'Me envie um gasto por texto (ex.: "gastei 45 no mercado") ' +
-      "ou uma foto do recibo que eu anoto pra você.",
-  );
+  try {
+    await iniciarCadastro(ctx);
+  } catch (err) {
+    await responderErro(ctx, err);
+  }
 }

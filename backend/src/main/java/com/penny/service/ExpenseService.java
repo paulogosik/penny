@@ -76,11 +76,13 @@ public class ExpenseService {
     }
 
     public ExpenseResponse recordFromText(User user, String text) {
+        ensurePhoneNumber(user);
         ClassifiedExpense classified = classifier.classifyText(text.strip(), contextFor(user));
         return transactionTemplate.execute(status -> record(user, classified, ExpenseSource.TELEGRAM_TEXT, text.strip()));
     }
 
     public ExpenseResponse recordFromReceipt(User user, String imageBase64, String mimeType) {
+        ensurePhoneNumber(user);
         byte[] image = decodeImage(imageBase64);
         ClassifiedExpense classified = classifier.classifyReceipt(image, mimeType, contextFor(user));
         return transactionTemplate.execute(status -> record(user, classified, ExpenseSource.TELEGRAM_PHOTO, null));
@@ -222,6 +224,15 @@ public class ExpenseService {
     private Expense find(User user, UUID id) {
         return expenses.findByIdAndUser(id, user)
             .orElseThrow(() -> new NotFoundException("EXPENSE_NOT_FOUND", "Gasto não encontrado."));
+    }
+
+    private void ensurePhoneNumber(User user) {
+        if (!user.hasPhoneNumber()) {
+            throw new BusinessRuleException(
+                "PHONE_NUMBER_REQUIRED",
+                "Compartilhe seu número de telefone para começar a registrar gastos."
+            );
+        }
     }
 
     private void ensureNotInstallment(Expense expense) {

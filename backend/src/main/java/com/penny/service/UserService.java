@@ -3,6 +3,7 @@ package com.penny.service;
 import com.penny.dto.MeRequest;
 import com.penny.dto.UserResponse;
 import com.penny.exception.BusinessRuleException;
+import com.penny.exception.ConflictException;
 import com.penny.model.ExpenseCategory;
 import com.penny.model.IncomeCategory;
 import com.penny.model.User;
@@ -62,6 +63,20 @@ public class UserService {
         ));
         createDefaultCategories(user);
         return new Registration(UserResponse.from(user), true);
+    }
+
+    @Transactional
+    public UserResponse updatePhoneNumber(User currentUser, String rawPhoneNumber) {
+        String phoneNumber = PhoneNumbers.normalize(rawPhoneNumber);
+        users.findByPhoneNumber(phoneNumber)
+            .filter(owner -> !owner.getId().equals(currentUser.getId()))
+            .ifPresent(owner -> {
+                throw new ConflictException("PHONE_NUMBER_TAKEN", "Esse número já está ligado a outra conta.");
+            });
+        User user = users.findById(currentUser.getId())
+            .orElseThrow(() -> new IllegalStateException("Usuário não encontrado: " + currentUser.getId()));
+        user.setPhoneNumber(phoneNumber);
+        return UserResponse.from(user);
     }
 
     private void createDefaultCategories(User user) {

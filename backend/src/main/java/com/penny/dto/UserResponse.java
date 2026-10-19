@@ -5,9 +5,23 @@ import com.penny.model.User;
 import java.time.Instant;
 import java.util.UUID;
 
-public record UserResponse(UUID id, Long telegramUserId, String name, String timezone, Instant createdAt) {
+public record UserResponse(
+    UUID id,
+    Long telegramUserId,
+    String name,
+    String timezone,
+    String phoneNumber,
+    Instant createdAt
+) {
 
     public static UserResponse from(User user) {
-        return new UserResponse(user.getId(), user.getTelegramUserId(), user.getName(), user.getTimezone(), user.getCreatedAt());
+        return new UserResponse(
+            user.getId(),
+            user.getTelegramUserId(),
+            user.getName(),
+            user.getTimezone(),
+            user.getPhoneNumber(),
+            user.getCreatedAt()
+        );
     }
 }

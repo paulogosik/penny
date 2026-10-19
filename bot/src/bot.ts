@@ -1,23 +1,18 @@
-import { Bot } from "grammy";
 import "dotenv/config";
-import { handleStart } from "./handlers/start.js";
-import { handleTextExpense } from "./handlers/expense.js";
-import { handlePhoto } from "./handlers/photo.js";
+import { createBot } from "./app.js";
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
   throw new Error("O BOT_TOKEN não foi definido no arquivo .env");
 }
+if (!process.env.BACKEND_URL) {
+  throw new Error("O BACKEND_URL não foi definido no arquivo .env");
+}
 
-const bot = new Bot(token);
+const bot = createBot(token);
 
-bot.command("start", handleStart);
-bot.on("message:photo", handlePhoto);
-bot.on("message:text", handleTextExpense);
-
-bot.catch((err) => {
-  console.error("Erro no bot:", err);
-});
+process.once("SIGINT", () => bot.stop());
+process.once("SIGTERM", () => bot.stop());
 
 console.log("Penny está online! 🚀");
 bot.start();

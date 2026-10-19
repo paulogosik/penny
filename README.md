@@ -44,13 +44,13 @@ docker compose down              # derrubar tudo
 
 ## Bot (`bot/`)
 
-Camada fina: recebe mensagens do Telegram, faz validações técnicas mínimas e repassa ao backend. Sem lógica de negócio.
+Camada fina: recebe mensagens do Telegram, faz validações técnicas mínimas e repassa ao backend. Sem lógica de negócio e **sem árvore de comandos**: depois do `/start`, é só conversar.
 
 **Funcionalidades**
-- Comando `/start`.
-- Registro de gasto por **texto**.
-- Registro de gasto por **foto de recibo** (baixa do Telegram e converte para base64).
-- Integração HTTP com o backend — *em construção (fase 2)*.
+- **Primeiro contato:** o `/start` cria a conta e pede o número de telefone pelo botão nativo do Telegram, explicando que ele serve para entrar no painel sem senha.
+- Registro de gasto por **texto livre** ("uber ontem 23,50", "tênis de 600 em 6x no nubank").
+- Registro de gasto por **foto de recibo**.
+- Resposta com categoria, valor, data, cartão, fatura e parcelas; erros viram mensagens amigáveis.
 
 **Como rodar sem Docker**
 ```bash
@@ -82,6 +82,7 @@ Todas as rotas identificam o usuário pelo cabeçalho `X-Telegram-User-Id` (prov
 | Rota | Uso |
 |------|-----|
 | `PUT /api/me` | Cadastro (cria as categorias padrão); idempotente |
+| `PUT /api/me/phone` | Salva o telefone (obrigatório para registrar gastos) |
 | `POST /api/expenses/text` · `POST /api/expenses/photo` | Registro de gasto pelo bot |
 | `/api/expenses` | Listagem paginada com filtros (`from`, `to`, `categoryId`, `creditCardId`, `billingMonth`) e CRUD |
 | `/api/installment-plans` | Compras parceladas |
@@ -107,6 +108,10 @@ cp .env.example .env   # defina GEMINI_API_KEY e as variáveis DB_*
 curl -X PUT http://localhost:8080/api/me \
   -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
   -d '{"name":"Paulo"}'
+
+curl -X PUT http://localhost:8080/api/me/phone \
+  -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
+  -d '{"phoneNumber":"+5511987654321"}'
 
 curl -X POST http://localhost:8080/api/expenses/text \
   -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \

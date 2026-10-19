@@ -1,34 +1,29 @@
 import type { Context } from "grammy";
-import { registrarGastoTexto, BackendIndisponivelError } from "../services/api.js";
-import type { ExpenseResponse } from "../types.js";
+import { formatarGasto, mensagens } from "../messages.js";
+import { registrarGastoTexto } from "../services/api.js";
+import { responderErro } from "./errors.js";
+
+const TAMANHO_MAXIMO_TEXTO = 1000;
 
 export async function handleTextExpense(ctx: Context): Promise<void> {
-  const texto = ctx.message?.text;
-  if (!texto) return;
+  const texto = ctx.message?.text?.trim();
+  const from = ctx.from;
+  if (!texto || !from) return;
+
+  if (texto.startsWith("/")) {
+    await ctx.reply(mensagens.semComandos);
+    return;
+  }
+  if (texto.length > TAMANHO_MAXIMO_TEXTO) {
+    await ctx.reply(mensagens.mensagemLonga);
+    return;
+  }
 
   await ctx.replyWithChatAction("typing");
-
   try {
-    const gasto = await registrarGastoTexto(texto);
+    const gasto = await registrarGastoTexto(from.id, texto);
     await ctx.reply(formatarGasto(gasto));
   } catch (err) {
-    if (err instanceof BackendIndisponivelError) {
-      await ctx.reply(
-        `Recebi seu gasto ✍️: "${texto}"\n\n` +
-          "Ainda não consigo categorizar sozinho — a integração com o backend vem na próxima etapa.",
-      );
-      return; 
-    }
-    throw err;
+    await responderErro(ctx, err);
   }
-}
-
-function formatarGasto(g: ExpenseResponse): string {
-  return (
-    "✅ Gasto anotado!\n" +
-    `📂 Categoria: ${g.category}\n` +
-    `💰 Valor: R$ ${g.amount.toFixed(2)}\n` +
-    `📅 Data: ${g.date}\n` +
-    `📝 ${g.description}`
-  );
 }

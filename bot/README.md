@@ -1,16 +1,23 @@
 # PennyBot — Telegram
 
-Serviço do bot no Telegram: recebe gastos por texto ou foto de recibo, prepara os dados e (fase 2) os envia ao backend para classificação por IA.
+Bot do Telegram do PennyBot: a pessoa registra gastos conversando, por texto livre ou foto de recibo. O bot repassa ao backend, que classifica com IA e salva.
+
+## Como a conversa funciona
+
+1. A pessoa toca em **Iniciar** (`/start`): o bot cria a conta e pede o número de telefone pelo botão **📱 Compartilhar meu número**, explicando que ele serve para entrar no painel do site sem senha.
+2. O bot só aceita o contato se ele for da própria pessoa.
+3. Com o número salvo, é só mandar mensagens como "gastei 45 no mercado", "uber ontem 23,50", "tênis de 600 em 6x no nubank" ou uma foto do recibo.
+
+Não há outros comandos: qualquer `/comando` recebe uma dica de como usar.
 
 ## Configuração
 
-1. Copie o exemplo de ambiente:
+```bash
+cp .env.example .env
+```
 
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Defina `BOT_TOKEN` no `.env` (token obtido com o @BotFather).
+- `BOT_TOKEN`: token do bot, obtido com o @BotFather.
+- `BACKEND_URL`: endereço do backend (no Docker Compose já vem como `http://backend:8080`).
 
 ## Executar em desenvolvimento
 
@@ -38,18 +45,17 @@ No Docker, o `Dockerfile` faz exatamente isso em duas etapas (build e runtime s�
 
 ```
 src/
-├── bot.ts               # orquestrador — só registra handlers
+├── bot.ts               # entrypoint: lê o .env, cria o bot e inicia
+├── app.ts               # createBot(): registra os handlers
+├── messages.ts          # textos, formatação do gasto e botão de compartilhar número
 ├── types.ts             # contrato de req/res com o backend
 ├── handlers/
-│   ├── start.ts         # comando /start
-│   ├── expense.ts       # mensagem de texto
-│   └── photo.ts         # foto de recibo (baixa e converte p/ base64)
+│   ├── start.ts         # /start
+│   ├── onboarding.ts    # cadastro e pedido de telefone
+│   ├── contact.ts       # contato compartilhado → salva o telefone
+│   ├── expense.ts       # gasto por texto
+│   ├── photo.ts         # gasto por foto de recibo
+│   └── errors.ts        # código de erro do backend → mensagem para o usuário
 └── services/
     └── api.ts           # cliente HTTP do backend
 ```
-
-## Estado atual
-
-- `/start`, handler de texto e handler de foto implementados (a foto é baixada do Telegram e convertida em base64).
-- A chamada HTTP ao backend é **fase 2**: `services/api.ts` já expõe as funções e marca com `TODO` o ponto exato da integração; enquanto isso, os handlers respondem que a categorização por IA vem em seguida.
-- Requer `BACKEND_URL` no `.env` (ver `.env.example`) quando a fase 2 for implementada.

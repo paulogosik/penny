@@ -6,27 +6,26 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 ---
 
-## Onde paramos (13/10/2026)
+## Onde paramos (18/10/2026)
 
-- **Backend pronto** para o bot e para o painel: API completa, integrada ao Supabase, 44 testes passando, validado ao vivo com o Gemini real (texto, foto de recibo, parcelado no cartão, data relativa, fuso horário).
-- **Bot** ainda não chama o backend: `services/api.ts` lança `BackendIndisponivelError`.
-- **Painel** não iniciado (stack e autenticação indefinidos).
-- PR aberto: **#3** (backend). O #2 (schema) já foi mergeado.
-- Próxima ação sugerida: **integrar o bot ao backend**.
+- **Bot integrado ao backend:** `/start` cadastra e pede o telefone (obrigatório), depois conversa livre por texto e foto. Validado de ponta a ponta com um simulador de mensagens contra backend, Supabase e Gemini reais.
+- **Backend:** 50 testes passando; migration **V3** (telefone) aplicada no Supabase.
+- **Painel** fica para um segundo momento (decisão do usuário). Login já desenhado: código pelo Telegram.
+- PR aberto: **#4** (integração do bot + telefone). #1, #2 e #3 mergeados.
+- Próxima ação sugerida: o usuário testar no Telegram real; depois, decidir entre começar o painel ou permitir cadastrar cartão pelo bot.
 
 ---
 
 ## Pendências e decisões em aberto
 
-### Integração do bot (próximo PR)
-- `/start` → `PUT /api/me` com `{ name }` e cabeçalho `X-Telegram-User-Id: <ctx.from.id>`.
-- Texto → `POST /api/expenses/text` `{ text }`; foto → `POST /api/expenses/photo` `{ imageBase64, mimeType }`.
-- Atualizar `bot/src/types.ts` para o `ExpenseResponse` novo: `categoryName` (era `category`), `occurredOn` (era `date`), `amount` (número com 2 casas), `creditCardName`, `billingMonth`, `installment { planId, number, count, totalAmount }`.
-- Tratar os `code` de erro no bot:
-  - `USER_NOT_REGISTERED` (404) → chamar `PUT /api/me` e repetir.
-  - `AMOUNT_NOT_FOUND`, `INSTALLMENTS_REQUIRE_CREDIT_CARD`, `INVALID_IMAGE` (422) → repassar a `message` ao usuário.
-  - `AI_UNAVAILABLE` (502) → pedir para tentar de novo.
-- No Docker, o bot já recebe `BACKEND_URL=http://backend:8080` pelo Compose.
+### Login do painel por código no Telegram (desenhado, não implementado)
+- `POST /api/auth/code` `{ phoneNumber }` → se não existe conta com o número, responde para a pessoa abrir o bot; se existe, gera código de 6 dígitos e envia com `sendMessage` (Bot API, `chat_id` = `telegram_user_id`) usando o mesmo `BOT_TOKEN`.
+- `POST /api/auth/verify` `{ phoneNumber, code }` → sessão do painel; trocar `CurrentUserArgumentResolver` para aceitar a sessão.
+- Regras: validade de 5 min, uso único, até 5 tentativas, limite de pedidos por telefone, código guardado com hash, mensagem "se não foi você, ignore".
+- O backend vai precisar do `BOT_TOKEN` no `.env` dele.
+
+### Cartões sem painel
+- Hoje cartões só são criados pela API (`POST /api/credit-cards`). Sem cartão, "comprei X em 6x" responde `INSTALLMENTS_REQUIRE_CREDIT_CARD` mandando cadastrar "no painel", que ainda não existe. Opções: cadastrar o cartão pelo bot ("meu cartão Nubank fecha dia 3 e vence dia 10") ou esperar o painel.
 
 ### Antes de expor o backend fora da máquina
 - **Autenticação:** hoje qualquer um que alcance o backend pode se passar por qualquer usuário via `X-Telegram-User-Id`. Trocar o resolver (`web/CurrentUserArgumentResolver`) quando o login do painel existir.
@@ -40,14 +39,22 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Deploy** (onde hospedar backend e bot).
 
 ### Melhorias pequenas anotadas
-- Extrair o `formatarGasto` duplicado em `bot/src/handlers/{expense,photo}.ts`.
 - Geração de recorrentes cobre só o mês atual (se o app ficar fora do ar um mês inteiro, aquele mês não é gerado retroativamente).
+- Uma mensagem de gasto enviada antes do cadastro é descartada (o bot cadastra e pede o número; a pessoa reenvia).
+- A legenda de uma foto de recibo é ignorada (poderia virar dica para a IA).
+- Pedidos em linguagem natural além de registrar gasto ("quanto gastei esse mês?", "apaga o último gasto") — ideia do usuário de manter tudo por conversa, sem menus.
+- Bot sem testes automatizados; `createBot()` em `app.ts` já permite testar com `bot.handleUpdate` + transformer da API (técnica usada na validação do PR #4).
 
 ---
 
 ## Histórico de PRs
 
-### PR #3 — Backend completo integrado ao banco (`feat/backend-core`) — aberto em 13/10/2026
+### PR #4 — Integração do bot + telefone obrigatório (`feat/bot-integration`) — aberto em 18/10/2026
+- Backend: migration **V3** (`users.phone_number`, E.164, único), `PUT /api/me/phone` com normalização, regra `PHONE_NUMBER_REQUIRED` nas rotas de gasto do bot, 6 testes novos (50 no total).
+- Bot: cliente HTTP real (`ApiError` com `status`/`code`, timeout de 90s), cadastro no `/start` com pedido de telefone e explicação do motivo (login no painel sem senha), botão nativo de compartilhar contato, recusa de contato de outra pessoa, gastos por texto e foto, mensagens centralizadas em `messages.ts` (fim do `formatarGasto` duplicado), `createBot()` separado do entrypoint, desligamento limpo no `SIGTERM`.
+- Validação: simulador com `bot.handleUpdate` cobrindo 13 cenários (cadastro, contato próprio/alheio, gasto simples, parcelado, cartão, sem valor, comando inexistente, foto) contra backend + Supabase + Gemini reais; usuário fictício `999999002` apagado no fim.
+
+### PR #3 — Backend completo integrado ao banco (`feat/backend-core`) — mergeado em 14/10/2026 02:26 UTC
 - Entidades JPA e repositórios para as 10 tabelas; `ddl-auto=validate` confirma que batem com o schema.
 - Fluxo do bot: cadastro idempotente com categorias padrão (acentos corrigidos: Saúde, Educação, Serviços), gasto por texto e por foto, parcelamento no cartão detectado pela IA, fallback para "Outros".
 - API do painel: categorias (gasto/renda), gastos (listagem paginada com filtros), rendas, cartões + fatura do mês, parcelamentos, recorrências, metas, dashboard.
@@ -79,6 +86,8 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Supabase:** usar o Session pooler; muitas falhas de senha seguidas podem bloquear o IP — parar o backend na hora.
 - **Testes de integração exigem Docker rodando** (Testcontainers). Rodar com `cd backend && ./mvnw test` (~1 min).
 - **Smoke test ao vivo:** usar um `telegram_user_id` fictício e apagar o usuário no fim (`delete from users where telegram_user_id = ...` remove tudo em cascata).
+- **Testar o bot sem o Telegram:** `createBot(token, { botInfo })` + `bot.api.config.use(...)` para capturar `sendMessage`/`getFile` + `bot.handleUpdate(update)` com mensagens fabricadas; interceptar o `fetch` de `api.telegram.org/file/` para devolver uma imagem local. Funciona com token falso, sem conflitar com o bot real rodando.
+- **Imagem de recibo para teste:** `qlmanage -t -s 900 -o <dir> recibo.txt` gera um PNG a partir de um texto (macOS).
 - **PR empilhado:** se o PR de base for mergeado sem apagar o branch, o GitHub não redireciona o PR de cima para a `main`; conferir com `gh pr view <n> --json baseRefName` e corrigir com `gh pr edit <n> --base main`.
 - **Shell do usuário é fish**, mas os comandos do Claude rodam em zsh: em zsh, `$var:...` é tratado como modificador; usar `${var}`.
 - **Python da máquina sem certificados raiz** (SSL falha em `urllib`): usar `curl` para chamadas HTTPS em scripts.

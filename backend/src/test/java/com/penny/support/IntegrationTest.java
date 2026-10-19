@@ -50,6 +50,13 @@ public abstract class IntegrationTest {
     }
 
     protected long registerUser() throws Exception {
+        long telegramUserId = registerUserWithoutPhone();
+        putAs(telegramUserId, "/api/me/phone", "{\"phoneNumber\":\"%s\"}".formatted(uniquePhoneNumber(telegramUserId)))
+            .andExpect(status().isOk());
+        return telegramUserId;
+    }
+
+    protected long registerUserWithoutPhone() throws Exception {
         long telegramUserId = TELEGRAM_IDS.incrementAndGet();
         mvc.perform(put("/api/me")
                 .header(HEADER, telegramUserId)
@@ -57,6 +64,10 @@ public abstract class IntegrationTest {
                 .content("{\"name\":\"Pessoa Teste\"}"))
             .andExpect(status().isCreated());
         return telegramUserId;
+    }
+
+    protected String uniquePhoneNumber(long telegramUserId) {
+        return "+5511" + String.format("%09d", telegramUserId % 1_000_000_000L);
     }
 
     protected ResultActions getAs(long user, String url) throws Exception {
