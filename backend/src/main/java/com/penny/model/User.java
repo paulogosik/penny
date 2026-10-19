@@ -27,6 +27,8 @@ public class User {
 
     private String timezone;
 
+    private String phoneNumber;
+
     @CreationTimestamp
     private Instant createdAt;
 
@@ -65,6 +67,18 @@ public class User {
 
     public void setTimezone(String timezone) {
         this.timezone = timezone;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+
+    public boolean hasPhoneNumber() {
+        return phoneNumber != null;
     }
 
     public Instant getCreatedAt() {

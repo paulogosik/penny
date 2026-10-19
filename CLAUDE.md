@@ -28,17 +28,19 @@ O **diferencial principal** é a IA para categorização automática de gastos �
 
 ### `backend/` — pronto para o bot e para o painel
 - Stack: **Java 21 (target) + Spring Boot 3.5.16 + Maven**, Spring Web, Spring Data JPA, Flyway, Bean Validation, Actuator.
-- Banco: **PostgreSQL no Supabase** (Session pooler), schema versionado com **Flyway** (`V1` schema inicial, `V2` controle de geração dos recorrentes) e **RLS ligado em todas as tabelas**.
+- Banco: **PostgreSQL no Supabase** (Session pooler), schema versionado com **Flyway** (`V1` schema inicial, `V2` controle de geração dos recorrentes, `V3` telefone do usuário) e **RLS ligado em todas as tabelas**.
+- **Telefone obrigatório** para registrar gastos (`PUT /api/me/phone`; sem número, as rotas de gasto do bot respondem `PHONE_NUMBER_REQUIRED`).
 - API completa para o bot (cadastro no `/start`, gasto por texto e por foto) e para o painel (CRUD de categorias, gastos, rendas, cartões, parcelamentos, recorrências, metas, fatura do cartão e dashboard). Ver tabela de endpoints abaixo.
 - IA: Gemini **`gemini-flash-lite-latest`**, com categorias e cartões do próprio usuário, data no fuso do usuário, detecção de parcelas e cartão, e nova tentativa automática em erros temporários (429/5xx).
 - Gastos fixos e renda mensal são **gerados automaticamente** (agendador de hora em hora + na subida da aplicação).
-- **44 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers.
+- **50 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers.
 
-### `bot/` — estrutura completa (lado Telegram), ainda não integrado ao backend
+### `bot/` — integrado ao backend
 - Stack: **Node.js + TypeScript** (ESM), **grammy** v1.41.1, **dotenv**.
 - `npm run dev` (ts-node) para desenvolvimento; `npm run build` + `npm start` (ou Docker) para produção.
-- Implementado: `/start`, handler de texto e handler de foto (baixa a foto do Telegram e converte para base64).
-- `services/api.ts` ainda lança `BackendIndisponivelError`; o contrato em `types.ts` está **desatualizado** em relação à API nova (ver `MEMORY.md`).
+- **Conversa livre, sem árvore de comandos:** o único comando é o `/start` (enviado pelo botão Iniciar do Telegram); depois disso a pessoa só manda texto ou foto.
+- Fluxo: `/start` cadastra a conta e pede o telefone com o botão nativo de compartilhar contato → número salvo → gastos por texto e foto, com resposta formatada (categoria, valor em R$, data, cartão/fatura, parcelas).
+- Cada código de erro do backend vira uma mensagem amigável; `PHONE_NUMBER_REQUIRED` e `USER_NOT_REGISTERED` retomam o cadastro automaticamente.
 
 ### `panel/` — não iniciado
 - Planejado; a pasta ainda não existe fisicamente. Stack não definido.
@@ -66,21 +68,26 @@ O bot é uma **camada fina**: recebe mensagens do Telegram, faz validações té
 
 ```
 bot/src/
-├── bot.ts               # orquestrador puro — só registra handlers
-├── types.ts             # tipos compartilhados (req/res shapes da API)
+├── bot.ts               # entrypoint: lê o .env, cria o bot e inicia o long polling
+├── app.ts               # createBot(): registra os handlers (testável sem rede)
+├── messages.ts          # textos, formatação do gasto e teclado de compartilhar número
+├── types.ts             # contrato de req/res com o backend
 ├── handlers/
-│   ├── start.ts         # handler do comando /start
-│   ├── expense.ts       # handler de mensagem de texto
-│   └── photo.ts         # handler de foto de recibo
+│   ├── start.ts         # /start
+│   ├── onboarding.ts    # cadastro + pedido de telefone (reusado por vários handlers)
+│   ├── contact.ts       # recebe o contato compartilhado e salva o telefone
+│   ├── expense.ts       # gasto por texto
+│   ├── photo.ts         # gasto por foto de recibo (baixa e converte para base64)
+│   └── errors.ts        # código de erro do backend → mensagem para o usuário
 └── services/
-    └── api.ts           # cliente HTTP que chama o backend Java
+    └── api.ts           # cliente HTTP do backend (ApiError com status e code)
 ```
 
 ### Responsabilidades do bot
 - `handlers/` — extraem dados da mensagem do Telegram e chamam `services/api.ts`.
-- `services/api.ts` — único ponto de contato com o backend; encapsula URLs, o cabeçalho `X-Telegram-User-Id` e a serialização.
+- `services/api.ts` — único ponto de contato com o backend; encapsula URLs, o cabeçalho `X-Telegram-User-Id`, timeout (90s) e a serialização.
 - `types.ts` — define os formatos de request/response trocados com o backend.
-- Sem lógica de IA, sem acesso a banco de dados — tudo isso fica no backend.
+- Validações só técnicas (texto até 1000 caracteres, foto até 10 MB, contato pertencer a quem enviou). Sem lógica de IA, sem acesso a banco de dados — tudo isso fica no backend.
 
 ---
 
@@ -119,6 +126,7 @@ Todas as rotas (exceto `PUT /api/me`, que cadastra) exigem o cabeçalho **`X-Tel
 | Método | Rota | Uso |
 |--------|------|-----|
 | `PUT` / `GET` | `/api/me` | Cadastro idempotente (cria categorias padrão) / perfil |
+| `PUT` | `/api/me/phone` | Salva o telefone (normalizado para E.164, único por conta) |
 | `POST` | `/api/expenses/text` | Bot: texto → IA → gasto salvo (parcelado vira plano) |
 | `POST` | `/api/expenses/photo` | Bot: foto de recibo (base64) → IA → gasto salvo |
 | `GET` `POST` `PUT` `DELETE` | `/api/expenses` | Painel: listagem paginada com filtros e CRUD manual |
@@ -166,6 +174,12 @@ Erros sempre no formato `{ code, message, fields? }`.
   - **Pagar a fatura não gera gasto** (as compras já foram registradas).
   - Valores em `numeric(12,2)` ↔ `BigDecimal`.
 - **Identificação do usuário:** cabeçalho `X-Telegram-User-Id`, resolvido para `@CurrentUser User` num único `HandlerMethodArgumentResolver`. **Provisório** até existir login no painel — a troca fica concentrada nesse resolver.
+- **Telefone (decisão de out/2026):**
+  - **Obrigatório** e pedido no primeiro contato, explicando que serve para entrar no painel sem senha.
+  - Capturado pelo botão nativo do Telegram (`request_contact`); o bot só aceita se `contact.user_id` for de quem enviou (impede compartilhar o contato de outra pessoa).
+  - Guardado normalizado em **E.164** (`+5511987654321`), **único** por conta; a chave interna continua sendo o UUID (o número pode mudar — é só compartilhar de novo).
+  - O ID do Telegram continua sendo como o bot identifica a pessoa em cada mensagem (o Telegram não envia o telefone nas mensagens).
+- **Login do painel (planejado, não implementado):** a pessoa digita o telefone no site → o backend manda um **código de 6 dígitos pelo Telegram** (via Bot API, `sendMessage` no chat da pessoa) → ela digita o código e entra. Código com validade de 5 min, uso único, até 5 tentativas, limite de pedidos e guardado com hash. Telefone sozinho nunca libera acesso. Sem número cadastrado, o site manda a pessoa abrir o bot.
 - **Fuso horário por usuário** (`users.timezone`, padrão `America/Sao_Paulo`): "hoje" é calculado no fuso do usuário com um `Clock` injetável (o container roda em UTC).
 
 ## Decisões de estrutura
@@ -190,7 +204,11 @@ Erros sempre no formato `{ code, message, fields? }`.
 ## Padrões de código
 - **Sem comentários no código**, em nenhum arquivo (inclusive testes e configs). Pendências ficam no `MEMORY.md`, não em `TODO` no código.
 - **Commits e PRs só no nome do usuário:** nunca adicionar `Co-Authored-By` nem "Generated with Claude Code".
-- **Bot:** imports relativos em ESM/`nodenext` usam extensão `.js`.
+- **Bot:**
+  - Imports relativos em ESM/`nodenext` usam extensão `.js`.
+  - Todo texto mostrado ao usuário fica em `messages.ts`; handlers não montam mensagens soltas.
+  - Erros da API sempre passam por `responderErro()` (decide pela `code`, nunca pelo texto).
+  - Valores com `Intl.NumberFormat("pt-BR", BRL)`, datas como `dd/mm/aaaa`, mês da fatura por extenso.
 - **Backend:**
   - DTOs são **Java records**, com `static from(entidade)` nos de resposta.
   - Controllers finos: `@Valid` no corpo, `@CurrentUser User` para o usuário, delegam ao service.
@@ -220,9 +238,9 @@ Erros sempre no formato `{ code, message, fields? }`.
 
 ## Próximos passos
 Detalhes e status em [`MEMORY.md`](./MEMORY.md).
-- **Bot:** integrar ao backend (`PUT /api/me` no `/start`, `X-Telegram-User-Id`, texto e foto, tratar códigos de erro); atualizar `types.ts`; extrair o `formatarGasto` duplicado.
-- **Painel:** definir stack e autenticação; consumir a API existente.
-- **Backend:** autenticação real (trocar o resolver de usuário), chave de API entre bot e backend, recibos no Supabase Storage (`receipt_path`), deploy.
+- **Painel (segundo momento):** definir stack; login com código pelo Telegram; consumir a API existente.
+- **Backend:** rotas do login por código + sessão do painel (trocar o resolver de usuário), chave de API entre bot e backend, recibos no Supabase Storage (`receipt_path`), deploy.
+- **Bot:** hoje cartões só são criados pela API (o painel ainda não existe), então compras parceladas pelo bot dependem disso.
 
 ---
 

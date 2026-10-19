@@ -1,43 +1,39 @@
 import type { Context } from "grammy";
-import { registrarGastoFoto, BackendIndisponivelError } from "../services/api.js";
-import type { ExpenseResponse } from "../types.js";
+import { formatarGasto, mensagens } from "../messages.js";
+import { registrarGastoFoto } from "../services/api.js";
+import { responderErro } from "./errors.js";
+
+const TAMANHO_MAXIMO_FOTO = 10 * 1024 * 1024;
 
 export async function handlePhoto(ctx: Context): Promise<void> {
   const fotos = ctx.message?.photo;
-  if (!fotos || fotos.length === 0) return;
-
-  await ctx.replyWithChatAction("typing");
+  const from = ctx.from;
+  if (!fotos || fotos.length === 0 || !from) return;
 
   const maior = fotos[fotos.length - 1];
   if (!maior) return;
+  if (maior.file_size !== undefined && maior.file_size > TAMANHO_MAXIMO_FOTO) {
+    await ctx.reply(mensagens.fotoGrande);
+    return;
+  }
 
-  const base64 = await baixarComoBase64(ctx, maior.file_id);
-
+  await ctx.replyWithChatAction("typing");
   try {
-    const gasto = await registrarGastoFoto(base64, "image/jpeg");
+    const base64 = await baixarComoBase64(ctx, maior.file_id);
+    const gasto = await registrarGastoFoto(from.id, base64, "image/jpeg");
     await ctx.reply(formatarGasto(gasto));
   } catch (err) {
-    if (err instanceof BackendIndisponivelError) {
-      await ctx.reply(
-        "Recebi sua foto 📸 e já consigo prepará-la pro backend.\n\n" +
-          "A leitura do recibo por IA vem na próxima etapa.",
-      );
-      return;
-    }
-    throw err;
+    await responderErro(ctx, err);
   }
 }
 
 async function baixarComoBase64(ctx: Context, fileId: string): Promise<string> {
-  const token = process.env.BOT_TOKEN;
-  if (!token) throw new Error("BOT_TOKEN não definido.");
-
   const file = await ctx.api.getFile(fileId);
   if (!file.file_path) {
     throw new Error("O Telegram não retornou o caminho do arquivo.");
   }
 
-  const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  const url = `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`;
   const resp = await fetch(url);
   if (!resp.ok) {
     throw new Error(`Falha ao baixar a foto do Telegram (${resp.status}).`);
@@ -45,14 +41,4 @@ async function baixarComoBase64(ctx: Context, fileId: string): Promise<string> {
 
   const buffer = Buffer.from(await resp.arrayBuffer());
   return buffer.toString("base64");
-}
-
-function formatarGasto(g: ExpenseResponse): string {
-  return (
-    "✅ Gasto anotado!\n" +
-    `📂 Categoria: ${g.category}\n` +
-    `💰 Valor: R$ ${g.amount.toFixed(2)}\n` +
-    `📅 Data: ${g.date}\n` +
-    `📝 ${g.description}`
-  );
 }

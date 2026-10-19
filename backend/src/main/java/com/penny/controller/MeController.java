@@ -1,6 +1,7 @@
 package com.penny.controller;
 
 import com.penny.dto.MeRequest;
+import com.penny.dto.PhoneNumberRequest;
 import com.penny.dto.UserResponse;
 import com.penny.model.User;
 import com.penny.service.UserService;
@@ -42,5 +43,10 @@ public class MeController {
         );
         HttpStatus status = registration.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(registration.user());
+    }
+
+    @PutMapping("/phone")
+    public UserResponse updatePhoneNumber(@CurrentUser User user, @Valid @RequestBody PhoneNumberRequest request) {
+        return userService.updatePhoneNumber(user, request.phoneNumber());
     }
 }
