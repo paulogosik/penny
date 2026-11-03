@@ -15,7 +15,7 @@ import {
   pedeContato,
   texto,
 } from "./support/ambiente.js";
-import { gasto, usuario } from "./support/dados.js";
+import { gasto, respostaGasto, usuario } from "./support/dados.js";
 
 const backend = new BackendFalso();
 let telegram: TelegramFalso;
@@ -59,7 +59,7 @@ describe("segurança do bot", () => {
   });
 
   test("o servidor sempre recebe o ID de quem enviou, mesmo em mensagem encaminhada de outra pessoa", async () => {
-    backend.responder("POST /api/expenses/text", { status: 201, corpo: gasto() });
+    backend.responder("POST /api/messages/text", { status: 201, corpo: respostaGasto(gasto()) });
     const encaminhada = texto(ANA, "gastei 45 no mercado");
     Object.assign(encaminhada.message ?? {}, { forward_origin: { type: "user", sender_user: BRUNO, date: 1_759_000_000 } });
 
@@ -71,7 +71,7 @@ describe("segurança do bot", () => {
   test("respostas não usam formatação, então texto vindo de fora aparece literal", async () => {
     backend.responder("PUT /api/me", { status: 200, corpo: usuario() });
     const salvo = gasto({ categoryName: "<i>Mercado</i>", description: "<b>negrito</b> *estrela* [link](https://exemplo.com)" });
-    backend.responder("POST /api/expenses/text", { status: 201, corpo: salvo });
+    backend.responder("POST /api/messages/text", { status: 201, corpo: respostaGasto(salvo) });
 
     await telegram.enviar(texto({ ...ANA, first_name: "<b>Ana</b>" }, "/start"));
     await telegram.enviar(texto(ANA, "gastei 45 no mercado"));
@@ -88,7 +88,7 @@ describe("segurança do bot", () => {
 
   test("detalhes de erro interno do servidor não chegam à pessoa", async (t) => {
     capturarErros(t);
-    backend.responder("POST /api/expenses/text", {
+    backend.responder("POST /api/messages/text", {
       status: 500,
       corpo: { code: "INTERNAL_ERROR", message: "NullPointerException em com.penny.service.ExpenseService" },
     });

@@ -5,7 +5,6 @@ import com.penny.dto.ExpenseRequest;
 import com.penny.dto.ExpenseResponse;
 import com.penny.dto.PageResponse;
 import com.penny.dto.PhotoExpenseRequest;
-import com.penny.dto.TextExpenseRequest;
 import com.penny.model.User;
 import com.penny.service.ExpenseService;
 import com.penny.web.CurrentUser;
@@ -35,12 +34,6 @@ public class ExpenseController {
 
     public ExpenseController(ExpenseService expenseService) {
         this.expenseService = expenseService;
-    }
-
-    @PostMapping("/text")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ExpenseResponse recordFromText(@CurrentUser User user, @Valid @RequestBody TextExpenseRequest request) {
-        return expenseService.recordFromText(user, request.text());
     }
 
     @PostMapping("/photo")

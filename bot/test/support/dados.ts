@@ -1,4 +1,4 @@
-import type { ExpenseResponse, UserResponse } from "../../src/types.js";
+import type { CreditCardResponse, ExpenseResponse, MessageResponse, UserResponse } from "../../src/types.js";
 
 export function usuario(parcial: Partial<UserResponse> = {}): UserResponse {
   return {
@@ -29,4 +29,27 @@ export function gasto(parcial: Partial<ExpenseResponse> = {}): ExpenseResponse {
     createdAt: "2026-10-13T15:00:00Z",
     ...parcial,
   };
+}
+
+export function cartao(parcial: Partial<CreditCardResponse> = {}): CreditCardResponse {
+  return {
+    id: "8f1c2c58-0000-4000-8000-000000000004",
+    name: "Nubank",
+    closingDay: 3,
+    dueDay: 10,
+    creditLimit: null,
+    archived: false,
+    ...parcial,
+  };
+}
+
+export function respostaGasto(expense: ExpenseResponse): MessageResponse {
+  return { type: "expense", expense };
+}
+
+export function respostaCartao(
+  type: "credit_card_created" | "credit_card_updated",
+  creditCard: CreditCardResponse,
+): MessageResponse {
+  return { type, creditCard };
 }

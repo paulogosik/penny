@@ -173,13 +173,19 @@ class TenantIsolationTest extends IntegrationTest {
         createCard(owner, "Nubank", 3, 10);
         classifier.willReturn("Viagem", "900.00", LocalDate.of(2026, 10, 13), "Passagem", 1, "Nubank");
 
-        postAs(intruder, "/api/expenses/text", "{\"text\":\"passagem 900 no nubank\"}")
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.categoryName").value("Outros"))
-            .andExpect(jsonPath("$.creditCardId").isEmpty());
+        postAs(intruder, "/api/messages/text", "{\"text\":\"passagem 900 no nubank\"}")
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("CREDIT_CARD_NOT_REGISTERED"));
 
         assertThat(classifier.lastContext().categories()).doesNotContain("Viagem");
         assertThat(classifier.lastContext().creditCards()).isEmpty();
+
+        classifier.willReturn("Viagem", "900.00", LocalDate.of(2026, 10, 13), "Passagem");
+        postAs(intruder, "/api/messages/text", "{\"text\":\"passagem 900\"}")
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.expense.categoryName").value("Outros"));
+
+        getAs(intruder, "/api/expenses").andExpect(jsonPath("$.totalElements").value(1));
         getAs(owner, "/api/expenses").andExpect(jsonPath("$.totalElements").value(0));
     }
 

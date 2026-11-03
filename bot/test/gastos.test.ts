@@ -11,7 +11,7 @@ import {
   interceptarDownloads,
   texto,
 } from "./support/ambiente.js";
-import { gasto } from "./support/dados.js";
+import { gasto, respostaGasto } from "./support/dados.js";
 
 const backend = new BackendFalso();
 let telegram: TelegramFalso;
@@ -26,14 +26,14 @@ beforeEach(() => {
 });
 
 describe("gasto por texto", () => {
-  test("mostra 'digitando', manda o texto sem espaços sobrando e responde com o gasto formatado", async () => {
+  test("manda para a rota de mensagens, 'digitando', manda o texto sem espaços sobrando e responde com o gasto formatado", async () => {
     const salvo = gasto({ amount: 45, description: "Mercado" });
-    backend.responder("POST /api/expenses/text", { status: 201, corpo: salvo });
+    backend.responder("POST /api/messages/text", { status: 201, corpo: respostaGasto(salvo) });
 
     await telegram.enviar(texto(ANA, "   gastei 45 no mercado   "));
 
     assert.deepEqual(backend.chamadas, [
-      { metodo: "POST", caminho: "/api/expenses/text", usuario: "1001", corpo: { text: "gastei 45 no mercado" } },
+      { metodo: "POST", caminho: "/api/messages/text", usuario: "1001", corpo: { text: "gastei 45 no mercado" } },
     ]);
     assert.deepEqual(
       telegram.chamadas.map((chamada) => chamada.metodo),
@@ -44,7 +44,7 @@ describe("gasto por texto", () => {
   });
 
   test("texto com exatamente 1000 caracteres ainda é enviado", async () => {
-    backend.responder("POST /api/expenses/text", { status: 201, corpo: gasto() });
+    backend.responder("POST /api/messages/text", { status: 201, corpo: respostaGasto(gasto()) });
 
     await telegram.enviar(texto(ANA, "a".repeat(1000)));
 

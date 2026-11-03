@@ -19,14 +19,14 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Restaurante", "38.00", LocalDate.of(2026, 10, 13), "Almoço");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"almocei 38 reais hoje\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"almocei 38 reais hoje\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.categoryName").value("Restaurante"))
-            .andExpect(jsonPath("$.amount").value(38.00))
-            .andExpect(jsonPath("$.occurredOn").value("2026-10-13"))
-            .andExpect(jsonPath("$.source").value("telegram_text"))
-            .andExpect(jsonPath("$.creditCardId").isEmpty())
-            .andExpect(jsonPath("$.installment").isEmpty());
+            .andExpect(jsonPath("$.expense.categoryName").value("Restaurante"))
+            .andExpect(jsonPath("$.expense.amount").value(38.00))
+            .andExpect(jsonPath("$.expense.occurredOn").value("2026-10-13"))
+            .andExpect(jsonPath("$.expense.source").value("telegram_text"))
+            .andExpect(jsonPath("$.expense.creditCardId").isEmpty())
+            .andExpect(jsonPath("$.expense.installment").isEmpty());
 
         getAs(user, "/api/expenses")
             .andExpect(status().isOk())
@@ -39,7 +39,7 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         clock.set(Instant.parse("2026-10-14T01:30:00Z"));
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"gastei 10 hoje\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"gastei 10 hoje\"}").andExpect(status().isCreated());
 
         assertThat(classifier.lastContext().today()).isEqualTo(LocalDate.of(2026, 10, 13));
         assertThat(classifier.lastContext().categories()).contains("Saúde", "Outros");
@@ -51,9 +51,9 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Pets", "50.00", LocalDate.of(2026, 10, 13), "Ração");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"ração 50\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"ração 50\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.categoryName").value("Outros"));
+            .andExpect(jsonPath("$.expense.categoryName").value("Outros"));
     }
 
     @Test
@@ -61,9 +61,9 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("saude", "80.00", LocalDate.of(2026, 10, 13), "Farmácia");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"farmácia 80\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"farmácia 80\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.categoryName").value("Saúde"));
+            .andExpect(jsonPath("$.expense.categoryName").value("Saúde"));
     }
 
     @Test
@@ -72,10 +72,10 @@ class ExpenseRecordingTest extends IntegrationTest {
         createCard(user, "Nubank", 3, 10);
         classifier.willReturn("Compras", "120.00", LocalDate.of(2026, 10, 13), "Fone", 1, "nubank");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"fone 120 no nubank\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"fone 120 no nubank\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.creditCardName").value("Nubank"))
-            .andExpect(jsonPath("$.billingMonth").value("2026-11-01"));
+            .andExpect(jsonPath("$.expense.creditCardName").value("Nubank"))
+            .andExpect(jsonPath("$.expense.billingMonth").value("2026-11-01"));
 
         assertThat(classifier.lastContext().creditCards()).containsExactly("Nubank");
     }
@@ -86,13 +86,13 @@ class ExpenseRecordingTest extends IntegrationTest {
         createCard(user, "Nubank", 3, 10);
         classifier.willReturn("Compras", "100.00", LocalDate.of(2026, 10, 13), "Tênis", 3, "Nubank");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"tênis 100 em 3x no nubank\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"tênis 100 em 3x no nubank\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.amount").value(33.33))
-            .andExpect(jsonPath("$.installment.number").value(1))
-            .andExpect(jsonPath("$.installment.count").value(3))
-            .andExpect(jsonPath("$.installment.totalAmount").value(100.00))
-            .andExpect(jsonPath("$.billingMonth").value("2026-11-01"));
+            .andExpect(jsonPath("$.expense.amount").value(33.33))
+            .andExpect(jsonPath("$.expense.installment.number").value(1))
+            .andExpect(jsonPath("$.expense.installment.count").value(3))
+            .andExpect(jsonPath("$.expense.installment.totalAmount").value(100.00))
+            .andExpect(jsonPath("$.expense.billingMonth").value("2026-11-01"));
 
         JsonNode plans = body(getAs(user, "/api/installment-plans").andExpect(status().isOk()));
         assertThat(plans).hasSize(1);
@@ -110,7 +110,7 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Compras", "600.00", LocalDate.of(2026, 10, 13), "TV", 6, null);
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"tv 600 em 6x\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"tv 600 em 6x\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("INSTALLMENTS_REQUIRE_CREDIT_CARD"));
 
@@ -122,7 +122,7 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Outros", "0", LocalDate.of(2026, 10, 13), "Oi");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"oi\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"oi\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("AMOUNT_NOT_FOUND"));
     }
@@ -132,7 +132,7 @@ class ExpenseRecordingTest extends IntegrationTest {
         long user = registerUser();
         createCard(user, "Itaú", 25, 5);
         classifier.willReturn("Compras", "300.00", LocalDate.of(2026, 10, 13), "Cadeira", 2, "itau");
-        JsonNode first = body(postAs(user, "/api/expenses/text", "{\"text\":\"cadeira 300 em 2x no itau\"}").andExpect(status().isCreated()));
+        JsonNode first = body(postAs(user, "/api/messages/text", "{\"text\":\"cadeira 300 em 2x no itau\"}").andExpect(status().isCreated())).path("expense");
         String expenseId = first.path("id").asText();
         String planId = first.path("installment").path("planId").asText();
 
@@ -213,7 +213,7 @@ class ExpenseRecordingTest extends IntegrationTest {
         long owner = registerUser();
         long intruder = registerUser();
         classifier.willReturn("Mercado", "10.00", LocalDate.of(2026, 10, 13), "Pão");
-        String id = body(postAs(owner, "/api/expenses/text", "{\"text\":\"pão 10\"}")).path("id").asText();
+        String id = body(postAs(owner, "/api/messages/text", "{\"text\":\"pão 10\"}")).path("expense").path("id").asText();
 
         getAs(intruder, "/api/expenses/" + id).andExpect(status().isNotFound());
         deleteAs(intruder, "/api/expenses/" + id).andExpect(status().isNotFound());

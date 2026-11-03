@@ -17,7 +17,7 @@ class PhoneNumberTest extends IntegrationTest {
 
         getAs(user, "/api/me").andExpect(jsonPath("$.phoneNumber").isEmpty());
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"gastei 45 no mercado\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"gastei 45 no mercado\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("PHONE_NUMBER_REQUIRED"));
 
@@ -39,7 +39,7 @@ class PhoneNumberTest extends IntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.phoneNumber").value("+" + digits));
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"gastei 10\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"gastei 10\"}").andExpect(status().isCreated());
     }
 
     @Test

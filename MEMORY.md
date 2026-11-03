@@ -6,15 +6,15 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 ---
 
-## Onde paramos (02/11/2026)
+## Onde paramos (02/11/2026, noite)
 
-- **Revisão de segurança e suíte de testes** (PR #6, aberto): backend com 76 testes (eram 50) e bot com 37 testes (não tinha nenhum), mais as correções dos achados. Os achados que ficaram abertos estão em "Pendências".
-- **Bot integrado ao backend** desde o PR #4: `/start` cadastra e pede o telefone (obrigatório), depois conversa livre por texto e foto. Agora só responde em conversa privada.
-- **CI** (PR #5, mergeado em 19/10/2026): jobs `backend`, `bot` (agora com `npm test`) e `docker`; `main` protegida exigindo os três verdes.
+- **Cartão pelo bot** (PR #7, aberto): "meu cartão Nubank fecha dia 3 e vence dia 10" cadastra o cartão; o mesmo nome atualiza os dias; compra que cita cartão não cadastrado é recusada com instrução. A rota de texto do bot passou a ser `POST /api/messages/text`. Backend com 101 testes e bot com 49.
+- Feito com **testes primeiro**, a pedido do usuário: especificação → testes → revisão independente → falha contra esqueleto → código → bugs plantados.
+- **Revisão de segurança e suíte de testes** (PR #6): mergeado em 03/11/2026 01:09 UTC.
 - **Painel** fica para um segundo momento (decisão do usuário). Login já desenhado: código pelo Telegram.
 - **CD** fica para quando chegarmos no deploy (decisão do usuário).
-- PRs #1 a #5 mergeados; #6 aberto.
-- Próxima ação sugerida: mergear o #6, testar no Telegram real e então escolher entre cadastrar cartão pelo bot ou começar o painel.
+- PRs #1 a #6 mergeados; #7 aberto.
+- Próxima ação sugerida: mergear o #7 e testar no Telegram real (cadastrar um cartão e fazer uma compra parcelada).
 
 ---
 
@@ -31,8 +31,10 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - Plano: a cada merge na `main`, gerar as imagens, publicar no GHCR e atualizar o servidor. Segredos no GitHub Secrets ou no painel da hospedagem.
 - Rodando bot + backend juntos (como no `compose.yaml`), o backend não precisa ficar exposto na internet, o que contorna a falta de autenticação até o painel existir.
 
-### Cartões sem painel
-- Hoje cartões só são criados pela API (`POST /api/credit-cards`). Sem cartão, "comprei X em 6x" responde `INSTALLMENTS_REQUIRE_CREDIT_CARD` mandando cadastrar "no painel", que ainda não existe. Opções: cadastrar o cartão pelo bot ("meu cartão Nubank fecha dia 3 e vence dia 10") ou esperar o painel.
+### Cartão pelo bot: o que ficou de fora
+- Listar, renomear ou remover cartão pela conversa ("quais cartões eu tenho?", "apaga o cartão inter"). Hoje só cadastra e atualiza dias/limite.
+- A API de cartões do painel compara nome com `upper()`, que diferencia acento: "Itaú" e "Itau" podem coexistir. O bot nunca cria essa duplicata (compara sem acento) e, se ela existir, prefere a mesma grafia. Avaliar se o painel deve recusar.
+- Compra "no crédito" sem nome de cartão é salva sem cartão, mesmo que a pessoa tenha um só.
 
 ### Antes de expor o backend fora da máquina
 - **Autenticação:** hoje qualquer um que alcance o backend pode se passar por qualquer usuário via `X-Telegram-User-Id`. Trocar o resolver (`web/CurrentUserArgumentResolver`) quando o login do painel existir.
@@ -64,7 +66,15 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 ## Histórico de PRs
 
-### PR #6 — Revisão de segurança e suíte de testes (`test/security-and-test-suite`) — aberto em 02/11/2026
+### PR #7 — Cartão de crédito pelo bot (`feat/credit-card-via-bot`) — aberto em 02/11/2026
+- Decisões do usuário: frase livre (sem conversa guiada); nome repetido atualiza os dias; compra que cita cartão não cadastrado é recusada com instrução.
+- Backend: `POST /api/messages/text` substitui `/api/expenses/text` e responde `{ type, expense | creditCard }`; `MessageService` decide pelo tipo que a IA devolve (`ClassifiedMessage`: gasto, cartão ou não entendido). Erros novos: `CREDIT_CARD_DETAILS_MISSING`, `INVALID_CREDIT_CARD_DAY`, `CREDIT_CARD_NOT_REGISTERED`, `MESSAGE_NOT_UNDERSTOOD`. A mensagem de parcelado sem cartão ensina a cadastrar pelo bot.
+- Gemini: no texto, `kind` + campos do cartão, e `creditCard` como texto livre; na foto, schema igual ao de antes (cartão restrito aos cadastrados, ignorado se não bater).
+- Bot: rota nova, respostas "Cartão cadastrado!" e "Cartão atualizado!", e dica de cadastro de cartão nas mensagens de boas-vindas.
+- Testes primeiro: especificação com 22 regras; 25 testes novos no backend (101 no total) e 12 no bot (49); revisão por um agente independente que só viu a especificação e os testes (achou buracos reais, nenhum teste errado); rodada vermelha contra um esqueleto só com tipos; 12 bugs plantados no backend e 5 no bot, todos pegos.
+- Testes antigos migrados para a rota nova (`$.x` → `$.expense.x`); dois mudaram de comportamento por decisão do usuário (cartão de outra pessoa ou removido agora é recusado, não mais salvo sem cartão).
+
+### PR #6 — Revisão de segurança e suíte de testes (`test/security-and-test-suite`) — mergeado em 03/11/2026 01:09 UTC
 - Revisão de backend, bot, Docker, CI e histórico do Git: nenhum segredo commitado; `npm audit` limpo depois de atualizar o `diff` (dependência de desenvolvimento do `ts-node`).
 - Correções: backend publicado só em `127.0.0.1:8080` (antes aberto para a rede, sem login); bot só em conversa privada (em grupo mostrava os gastos para todos); 405, 415 e 500 no formato padrão, com o 500 sem detalhes internos; valor gigante vindo da IA → `AMOUNT_TOO_LARGE` (antes virava 409 `DATA_CONFLICT`); `X-Telegram-User-Id` 0 ou negativo → `INVALID_HEADER`; timeout de 30 s no download da foto.
 - Backend: 26 testes novos (76 no total) em `TenantIsolationTest`, `RequestHardeningTest`, `AiOutputHandlingTest`, `PlatformSecurityTest` e `GeminiExpenseClassifierTest`.
@@ -115,7 +125,8 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Testes de integração exigem Docker rodando** (Testcontainers). Rodar com `cd backend && ./mvnw test` (~1 min).
 - **Smoke test ao vivo:** usar um `telegram_user_id` fictício e apagar o usuário no fim (`delete from users where telegram_user_id = ...` remove tudo em cascata).
 - **Testar o bot sem o Telegram:** `createBot(token, { botInfo })` + `bot.api.config.use(...)` para capturar `sendMessage`/`getFile` + `bot.handleUpdate(update)` com mensagens fabricadas; interceptar o `fetch` de `api.telegram.org/file/` para devolver uma imagem local. Funciona com token falso, sem conflitar com o bot real rodando. Desde o PR #6 isso está pronto em `bot/test/support/ambiente.ts`.
-- **Conferir se o teste testa:** desfazer a correção (plantar o bug), ver o teste falhar e restaurar. Usado nos PRs #3 e #6.
+- **Conferir se o teste testa:** desfazer a correção (plantar o bug), ver o teste falhar e restaurar. Usado nos PRs #3, #6 e #7. Rodar bugs que atingem testes diferentes juntos e separar os que se sobrepõem, para um não esconder o outro.
+- **`jsonPath(...).doesNotExist()` passa com campo `null`:** para checar que o campo não aparece, usar `body(...).has(...)`.
 - **Forçar um 500 em teste do backend:** apagar a categoria "Outros" do usuário direto no banco (`JdbcTemplate`) e fazer a IA falsa devolver uma categoria desconhecida.
 - **CORS no MockMvc:** sem configuração de CORS, o preflight de outra origem recebe 403 sem `Access-Control-Allow-Origin` (padrão do Spring, e é o que queremos).
 - **`node --test` com glob:** o padrão vai entre aspas no script (`"build-test/test/**/*.test.js"`) para o Node expandir, não o shell.

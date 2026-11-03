@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 
 function gastoFalhaCom(resposta: RespostaBackend): Promise<void> {
-  backend.responder("POST /api/expenses/text", resposta);
+  backend.responder("POST /api/messages/text", resposta);
   return telegram.enviar(texto(ANA, "gastei 45 no mercado"));
 }
 
@@ -46,7 +46,7 @@ describe("erros do servidor viram mensagens amigáveis", () => {
 
     assert.deepEqual(
       backend.chamadas.map((chamada) => `${chamada.metodo} ${chamada.caminho}`),
-      ["POST /api/expenses/text", "PUT /api/me"],
+      ["POST /api/messages/text", "PUT /api/me"],
     );
     const [resposta] = telegram.mensagens();
     assert.equal(resposta?.payload["text"], mensagens.boasVindas("Ana"));

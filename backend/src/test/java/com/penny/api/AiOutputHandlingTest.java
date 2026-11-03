@@ -17,7 +17,7 @@ class AiOutputHandlingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Compras", "100000000000.00", TODAY, "Ilha");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"comprei uma ilha por 100 bilhões\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"comprei uma ilha por 100 bilhões\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("AMOUNT_TOO_LARGE"));
         getAs(user, "/api/expenses").andExpect(jsonPath("$.totalElements").value(0));
@@ -28,9 +28,9 @@ class AiOutputHandlingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Moradia", "9999999999.99", TODAY, "Casa");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"casa de 9.999.999.999,99\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"casa de 9.999.999.999,99\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.amount").value(9999999999.99));
+            .andExpect(jsonPath("$.expense.amount").value(9999999999.99));
     }
 
     @Test
@@ -38,7 +38,7 @@ class AiOutputHandlingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Mercado", "-50.00", TODAY, "Estorno");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"estorno de 50\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"estorno de 50\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("AMOUNT_NOT_FOUND"));
     }
@@ -49,7 +49,7 @@ class AiOutputHandlingTest extends IntegrationTest {
         createCard(user, "Nubank", 3, 10);
         classifier.willReturn("Compras", "1200.00", TODAY, "Sofá", 120, "Nubank");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"sofá 1200 em 120x no nubank\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"sofá 1200 em 120x no nubank\"}")
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("INVALID_INSTALLMENTS"));
         getAs(user, "/api/installment-plans").andExpect(jsonPath("$.length()").value(0));
@@ -57,7 +57,7 @@ class AiOutputHandlingTest extends IntegrationTest {
     }
 
     @Test
-    void archivedCategoryAndCardAreNotUsed() throws Exception {
+    void archivedCategoryIsNotUsedAndArchivedCardIsRejected() throws Exception {
         long user = registerUser();
         String petsId = body(postAs(user, "/api/expense-categories", "{\"name\":\"Pets\"}").andExpect(status().isCreated()))
             .path("id").asText();
@@ -67,12 +67,17 @@ class AiOutputHandlingTest extends IntegrationTest {
             .andExpect(status().isCreated());
         deleteAs(user, "/api/expense-categories/" + petsId).andExpect(status().isNoContent());
         deleteAs(user, "/api/credit-cards/" + cardId).andExpect(status().isNoContent());
-        classifier.willReturn("Pets", "45.00", TODAY, "Ração", 1, "Nubank");
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"ração 45 no nubank\"}")
+        classifier.willReturn("Pets", "45.00", TODAY, "Ração");
+        postAs(user, "/api/messages/text", "{\"text\":\"ração 45\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.categoryName").value("Outros"))
-            .andExpect(jsonPath("$.creditCardId").isEmpty());
+            .andExpect(jsonPath("$.expense.categoryName").value("Outros"));
+
+        classifier.willReturn("Mercado", "45.00", TODAY, "Ração", 1, "Nubank");
+        postAs(user, "/api/messages/text", "{\"text\":\"ração 45 no nubank\"}")
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("CREDIT_CARD_NOT_REGISTERED"));
+        getAs(user, "/api/expenses").andExpect(jsonPath("$.totalElements").value(2));
     }
 
     @Test
@@ -80,13 +85,13 @@ class AiOutputHandlingTest extends IntegrationTest {
         long user = registerUser();
         classifier.willReturn("Mercado", "10.00", TODAY, "x".repeat(500));
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"mercado 10\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"mercado 10\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.description").value("x".repeat(200)));
+            .andExpect(jsonPath("$.expense.description").value("x".repeat(200)));
 
         classifier.willReturn("Mercado", "10.00", TODAY, "   ");
-        postAs(user, "/api/expenses/text", "{\"text\":\"mercado 10\"}")
+        postAs(user, "/api/messages/text", "{\"text\":\"mercado 10\"}")
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.description").value("Mercado"));
+            .andExpect(jsonPath("$.expense.description").value("Mercado"));
     }
 }

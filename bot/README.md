@@ -1,12 +1,13 @@
 # PennyBot — Telegram
 
-Bot do Telegram do PennyBot: a pessoa registra gastos conversando, por texto livre ou foto de recibo. O bot repassa ao backend, que classifica com IA e salva.
+Bot do Telegram do PennyBot: a pessoa registra gastos e cadastra cartões conversando, por texto livre ou foto de recibo. O bot repassa ao backend, que classifica com IA e salva.
 
 ## Como a conversa funciona
 
 1. A pessoa toca em **Iniciar** (`/start`): o bot cria a conta e pede o número de telefone pelo botão **📱 Compartilhar meu número**, explicando que ele serve para entrar no painel do site sem senha.
 2. O bot só aceita o contato se ele for da própria pessoa.
 3. Com o número salvo, é só mandar mensagens como "gastei 45 no mercado", "uber ontem 23,50", "tênis de 600 em 6x no nubank" ou uma foto do recibo.
+4. Para cadastrar um cartão: "meu cartão Nubank fecha dia 3 e vence dia 10" (o limite é opcional). Mandar de novo com o mesmo nome atualiza os dias; as compras já lançadas continuam na fatura em que estavam. Uma compra que cita um cartão não cadastrado é recusada, com a frase de cadastro como exemplo.
 
 Não há outros comandos: qualquer `/comando` recebe uma dica de como usar.
 

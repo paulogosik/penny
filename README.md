@@ -52,6 +52,7 @@ Camada fina: recebe mensagens do Telegram, faz validações técnicas mínimas e
 - **Primeiro contato:** o `/start` cria a conta e pede o número de telefone pelo botão nativo do Telegram, explicando que ele serve para entrar no painel sem senha.
 - Registro de gasto por **texto livre** ("uber ontem 23,50", "tênis de 600 em 6x no nubank").
 - Registro de gasto por **foto de recibo**.
+- Cadastro de **cartão de crédito** por frase livre ("meu cartão Nubank fecha dia 3 e vence dia 10"); mandar de novo com o mesmo nome atualiza os dias.
 - Resposta com categoria, valor, data, cartão, fatura e parcelas; erros viram mensagens amigáveis.
 
 **Como rodar sem Docker**
@@ -71,7 +72,7 @@ Mais detalhes em [`bot/README.md`](./bot/README.md).
 API REST que classifica os gastos com IA e cuida de toda a regra de negócio. Padrão Controller → Service → Repository.
 
 **Funcionalidades**
-- **Gastos por texto e por foto de recibo**, classificados pelo Google Gemini (`gemini-flash-lite-latest`) com as categorias e os cartões do próprio usuário, a data no fuso dele e detecção de compras parceladas.
+- **Gastos por texto e por foto de recibo**, classificados pelo Google Gemini (`gemini-flash-lite-latest`) com as categorias e os cartões do próprio usuário, a data no fuso dele e detecção de compras parceladas. No texto, a IA também reconhece o **cadastro de um cartão**.
 - **Cartões de crédito** com fatura calculada pelo dia de fechamento e vencimento, e **parcelamentos** distribuídos nas faturas seguintes.
 - **Gastos fixos e renda mensal** gerados automaticamente todo mês.
 - **Categorias** de gasto e de renda gerenciadas pelo usuário (com orçamento mensal), **metas** de economia e **dashboard** do mês.
@@ -85,7 +86,7 @@ Todas as rotas identificam o usuário pelo cabeçalho `X-Telegram-User-Id` (prov
 |------|-----|
 | `PUT /api/me` | Cadastro (cria as categorias padrão); idempotente |
 | `PUT /api/me/phone` | Salva o telefone (obrigatório para registrar gastos) |
-| `POST /api/expenses/text` · `POST /api/expenses/photo` | Registro de gasto pelo bot |
+| `POST /api/messages/text` · `POST /api/expenses/photo` | Bot: mensagem de texto (gasto ou cadastro de cartão) e foto de recibo |
 | `/api/expenses` | Listagem paginada com filtros (`from`, `to`, `categoryId`, `creditCardId`, `billingMonth`) e CRUD |
 | `/api/installment-plans` | Compras parceladas |
 | `/api/expense-categories` · `/api/income-categories` | Categorias |
@@ -115,7 +116,11 @@ curl -X PUT http://localhost:8080/api/me/phone \
   -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
   -d '{"phoneNumber":"+5511987654321"}'
 
-curl -X POST http://localhost:8080/api/expenses/text \
+curl -X POST http://localhost:8080/api/messages/text \
+  -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
+  -d '{"text":"meu cartão nubank fecha dia 3 e vence dia 10"}'
+
+curl -X POST http://localhost:8080/api/messages/text \
   -H 'X-Telegram-User-Id: 123' -H 'Content-Type: application/json' \
   -d '{"text":"comprei um tênis de 600 em 6x no nubank"}'
 ```
