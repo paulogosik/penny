@@ -6,15 +6,15 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 
 ---
 
-## Onde paramos (18/10/2026)
+## Onde paramos (02/11/2026)
 
-- **Bot integrado ao backend:** `/start` cadastra e pede o telefone (obrigatório), depois conversa livre por texto e foto. Validado de ponta a ponta com um simulador de mensagens contra backend, Supabase e Gemini reais.
-- **Backend:** 50 testes passando; migration **V3** (telefone) aplicada no Supabase.
-- **CI no GitHub Actions** (PR #5): jobs `backend`, `bot` e `docker` em todo PR; `main` protegida exigindo os três verdes.
+- **Revisão de segurança e suíte de testes** (PR #6, aberto): backend com 76 testes (eram 50) e bot com 37 testes (não tinha nenhum), mais as correções dos achados. Os achados que ficaram abertos estão em "Pendências".
+- **Bot integrado ao backend** desde o PR #4: `/start` cadastra e pede o telefone (obrigatório), depois conversa livre por texto e foto. Agora só responde em conversa privada.
+- **CI** (PR #5, mergeado em 19/10/2026): jobs `backend`, `bot` (agora com `npm test`) e `docker`; `main` protegida exigindo os três verdes.
 - **Painel** fica para um segundo momento (decisão do usuário). Login já desenhado: código pelo Telegram.
 - **CD** fica para quando chegarmos no deploy (decisão do usuário).
-- PR aberto: **#5** (CI). #1 a #4 mergeados.
-- Próxima ação sugerida: o usuário testar no Telegram real; depois, decidir entre começar o painel ou permitir cadastrar cartão pelo bot.
+- PRs #1 a #5 mergeados; #6 aberto.
+- Próxima ação sugerida: mergear o #6, testar no Telegram real e então escolher entre cadastrar cartão pelo bot ou começar o painel.
 
 ---
 
@@ -38,6 +38,15 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Autenticação:** hoje qualquer um que alcance o backend pode se passar por qualquer usuário via `X-Telegram-User-Id`. Trocar o resolver (`web/CurrentUserArgumentResolver`) quando o login do painel existir.
 - **Chave de API entre bot e backend** (segredo compartilhado num cabeçalho).
 - **Quem pode usar o bot** (lista de liberados) — o usuário decidiu tratar depois, junto com a criação de contas.
+- **Limite de uso (rate limit):** qualquer pessoa que achar o bot pode se cadastrar e gastar a cota do Gemini (cada mensagem faz até 3 chamadas).
+- **Limite de tamanho da requisição:** o Tomcat não limita corpo JSON; o maior campo legítimo é a foto (até 14 milhões de caracteres em base64).
+
+### Achados da revisão de segurança de 02/11/2026 ainda abertos
+- **Mensagens processadas uma por vez:** o `bot.start()` do grammY é sequencial; uma chamada à IA (até ~90 s) segura as mensagens de todo mundo. Solução: `@grammyjs/runner` + `sequentialize` por chat.
+- **Telefone pode aparecer no log:** o handler de `DataIntegrityViolationException` loga a causa do Postgres, que inclui o valor duplicado. A checagem de número já usado antes evita o caso comum; só uma corrida chega lá.
+- **`.env` com permissão 644** (legível por outros usuários da máquina): `chmod 600 bot/.env backend/.env`.
+- **Actions fixadas por versão principal** (`@v7`), não por SHA: aceitável enquanto o CI não tem segredos; trocar por SHA quando entrar o CD.
+- **Baixo risco:** data vinda da IA sem limite (pode cair em 1900 ou 2100); tipo da imagem não é conferido com o conteúdo (o Gemini recusa o que não for imagem); comparação de nome de cartão por "contém" (um cartão chamado "C" casa com qualquer texto com "c").
 
 ### Decisões em aberto
 - **Stack do painel** e **forma de login** (perguntar ao usuário, não assumir).
@@ -50,13 +59,19 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - Uma mensagem de gasto enviada antes do cadastro é descartada (o bot cadastra e pede o número; a pessoa reenvia).
 - A legenda de uma foto de recibo é ignorada (poderia virar dica para a IA).
 - Pedidos em linguagem natural além de registrar gasto ("quanto gastei esse mês?", "apaga o último gasto") — ideia do usuário de manter tudo por conversa, sem menus.
-- Bot sem testes automatizados; `createBot()` em `app.ts` já permite testar com `bot.handleUpdate` + transformer da API (técnica usada na validação do PR #4).
 
 ---
 
 ## Histórico de PRs
 
-### PR #5 — CI no GitHub Actions (`ci/github-actions`) — aberto em 18/10/2026
+### PR #6 — Revisão de segurança e suíte de testes (`test/security-and-test-suite`) — aberto em 02/11/2026
+- Revisão de backend, bot, Docker, CI e histórico do Git: nenhum segredo commitado; `npm audit` limpo depois de atualizar o `diff` (dependência de desenvolvimento do `ts-node`).
+- Correções: backend publicado só em `127.0.0.1:8080` (antes aberto para a rede, sem login); bot só em conversa privada (em grupo mostrava os gastos para todos); 405, 415 e 500 no formato padrão, com o 500 sem detalhes internos; valor gigante vindo da IA → `AMOUNT_TOO_LARGE` (antes virava 409 `DATA_CONFLICT`); `X-Telegram-User-Id` 0 ou negativo → `INVALID_HEADER`; timeout de 30 s no download da foto.
+- Backend: 26 testes novos (76 no total) em `TenantIsolationTest`, `RequestHardeningTest`, `AiOutputHandlingTest`, `PlatformSecurityTest` e `GeminiExpenseClassifierTest`.
+- Bot: testes com `node:test` (`npm test`, 37 testes) em `bot/test/`; o job `bot` do CI passou a rodar os testes.
+- Checagem com bugs plantados: 6 no backend (filtro por usuário removido em gasto e em cartão, header ≤ 0 aceito, sem tratamento de 500, sem limite de valor, chave do Gemini na URL) e 1 no bot (sem filtro de conversa privada). Todos pegos pelos testes.
+
+### PR #5 — CI no GitHub Actions (`ci/github-actions`) — mergeado em 19/10/2026 02:08 UTC
 - `.github/workflows/ci.yml`: jobs paralelos `backend` (`./mvnw -B -ntp verify`, relatórios do Surefire como artefato em caso de falha), `bot` (`npm ci` + `npm run build`) e `docker` (build das imagens), em PR, push na `main` e execução manual.
 - Sem segredos; `permissions: contents: read`; cancela runs antigos do mesmo PR (mas não os da `main`).
 - Selo de CI e seção "Integração contínua" no README.
@@ -99,8 +114,12 @@ Diário do projeto, usado como contexto externo entre sessões. O [`CLAUDE.md`](
 - **Supabase:** usar o Session pooler; muitas falhas de senha seguidas podem bloquear o IP — parar o backend na hora.
 - **Testes de integração exigem Docker rodando** (Testcontainers). Rodar com `cd backend && ./mvnw test` (~1 min).
 - **Smoke test ao vivo:** usar um `telegram_user_id` fictício e apagar o usuário no fim (`delete from users where telegram_user_id = ...` remove tudo em cascata).
-- **Testar o bot sem o Telegram:** `createBot(token, { botInfo })` + `bot.api.config.use(...)` para capturar `sendMessage`/`getFile` + `bot.handleUpdate(update)` com mensagens fabricadas; interceptar o `fetch` de `api.telegram.org/file/` para devolver uma imagem local. Funciona com token falso, sem conflitar com o bot real rodando.
-- **Plugins da Cloud Humans desligados neste projeto** (18/10/2026): `.claude/settings.local.json` (local, fora do Git) com `syncClaudeAiPlugins: false`, `syncClaudeAiSkills: false` e `disableClaudeAiConnectors: true`. Vale só para sessões nesta pasta; os projetos do trabalho seguem iguais. O hook do plugin `ch-engineering` ligava um monitor de comentários de PR que é inútil aqui (ignora comentários do próprio usuário). Conferir na próxima sessão se o app desktop respeitou as chaves.
+- **Testar o bot sem o Telegram:** `createBot(token, { botInfo })` + `bot.api.config.use(...)` para capturar `sendMessage`/`getFile` + `bot.handleUpdate(update)` com mensagens fabricadas; interceptar o `fetch` de `api.telegram.org/file/` para devolver uma imagem local. Funciona com token falso, sem conflitar com o bot real rodando. Desde o PR #6 isso está pronto em `bot/test/support/ambiente.ts`.
+- **Conferir se o teste testa:** desfazer a correção (plantar o bug), ver o teste falhar e restaurar. Usado nos PRs #3 e #6.
+- **Forçar um 500 em teste do backend:** apagar a categoria "Outros" do usuário direto no banco (`JdbcTemplate`) e fazer a IA falsa devolver uma categoria desconhecida.
+- **CORS no MockMvc:** sem configuração de CORS, o preflight de outra origem recebe 403 sem `Access-Control-Allow-Origin` (padrão do Spring, e é o que queremos).
+- **`node --test` com glob:** o padrão vai entre aspas no script (`"build-test/test/**/*.test.js"`) para o Node expandir, não o shell.
+- **Plugins da Cloud Humans desligados neste projeto** (18/10/2026): `.claude/settings.local.json` (local, fora do Git) com `syncClaudeAiPlugins: false`, `syncClaudeAiSkills: false` e `disableClaudeAiConnectors: true`. Vale só para sessões nesta pasta; os projetos do trabalho seguem iguais. O hook do plugin `ch-engineering` ligava um monitor de comentários de PR que é inútil aqui (ignora comentários do próprio usuário). O app desktop ignora essas chaves (conferido em 20/10 e 02/11/2026): os plugins continuam carregados, então o Claude simplesmente não usa nada deles neste projeto.
 - **Imagem de recibo para teste:** `qlmanage -t -s 900 -o <dir> recibo.txt` gera um PNG a partir de um texto (macOS).
 - **PR empilhado:** se o PR de base for mergeado sem apagar o branch, o GitHub não redireciona o PR de cima para a `main`; conferir com `gh pr view <n> --json baseRefName` e corrigir com `gh pr edit <n> --base main`.
 - **Shell do usuário é fish**, mas os comandos do Claude rodam em zsh: em zsh, `$var:...` é tratado como modificador; usar `${var}`.

@@ -10,6 +10,8 @@ Bot do Telegram do PennyBot: a pessoa registra gastos conversando, por texto liv
 
 Não há outros comandos: qualquer `/comando` recebe uma dica de como usar.
 
+O bot só responde em conversa privada. Em grupos ele fica em silêncio, para não mostrar os gastos de uma pessoa para as outras.
+
 ## Configuração
 
 ```bash
@@ -25,6 +27,14 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+## Testes
+
+```bash
+npm test
+```
+
+Compila `src/` e `test/` com o `tsconfig.test.json` e roda os arquivos `*.test.ts` com o `node:test` do próprio Node (sem dependências extras). Os testes não usam rede: um `TelegramFalso` intercepta as chamadas à Bot API e um `BackendFalso` (servidor HTTP local) faz o papel do backend. Ver `test/support/ambiente.ts`.
 
 ## Build de produção
 

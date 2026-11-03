@@ -4,6 +4,7 @@ import { registrarGastoFoto } from "../services/api.js";
 import { responderErro } from "./errors.js";
 
 const TAMANHO_MAXIMO_FOTO = 10 * 1024 * 1024;
+const TEMPO_LIMITE_DOWNLOAD_MS = 30_000;
 
 export async function handlePhoto(ctx: Context): Promise<void> {
   const fotos = ctx.message?.photo;
@@ -34,7 +35,7 @@ async function baixarComoBase64(ctx: Context, fileId: string): Promise<string> {
   }
 
   const url = `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`;
-  const resp = await fetch(url);
+  const resp = await fetch(url, { signal: AbortSignal.timeout(TEMPO_LIMITE_DOWNLOAD_MS) });
   if (!resp.ok) {
     throw new Error(`Falha ao baixar a foto do Telegram (${resp.status}).`);
   }

@@ -47,10 +47,19 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
         if (header == null || header.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_HEADER", "Cabeçalho obrigatório ausente: " + HEADER + ".");
         }
+        long telegramUserId;
         try {
-            return Long.parseLong(header.strip());
+            telegramUserId = Long.parseLong(header.strip());
         } catch (NumberFormatException e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_HEADER", "Cabeçalho " + HEADER + " inválido.");
+            throw invalidHeader();
         }
+        if (telegramUserId <= 0) {
+            throw invalidHeader();
+        }
+        return telegramUserId;
+    }
+
+    private static ApiException invalidHeader() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_HEADER", "Cabeçalho " + HEADER + " inválido.");
     }
 }

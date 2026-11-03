@@ -6,11 +6,12 @@ import { handleStart } from "./handlers/start.js";
 
 export function createBot(token: string, config?: BotConfig<Context>): Bot {
   const bot = new Bot(token, config);
+  const privado = bot.chatType("private");
 
-  bot.command("start", handleStart);
-  bot.on("message:contact", handleContact);
-  bot.on("message:photo", handlePhoto);
-  bot.on("message:text", handleTextExpense);
+  privado.command("start", handleStart);
+  privado.on("message:contact", handleContact);
+  privado.on("message:photo", handlePhoto);
+  privado.on("message:text", handleTextExpense);
 
   bot.catch((err) => {
     console.error("Erro no bot:", err);

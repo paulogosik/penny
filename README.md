@@ -32,7 +32,7 @@ cp backend/.env.example backend/.env   # defina GEMINI_API_KEY e as variáveis D
 docker compose up --build
 ```
 
-- O backend fica exposto em `http://localhost:8080` e tem healthcheck em `/actuator/health`.
+- O backend fica em `http://localhost:8080`, só para a própria máquina (a porta não é aberta para a rede, porque o backend ainda não tem login), e tem healthcheck em `/actuator/health`.
 - O bot só sobe depois que o backend está saudável e fala com ele por `http://backend:8080` (rede interna do Compose).
 
 Comandos úteis:
@@ -126,6 +126,13 @@ cd backend
 ./mvnw test   # precisa do Docker rodando: os testes sobem um PostgreSQL real com Testcontainers
 ```
 
+```bash
+cd bot
+npm test      # compila e roda os testes com o node:test, sem Telegram nem backend de verdade
+```
+
+Além dos fluxos de cada funcionalidade, as duas suítes cobrem segurança: isolamento entre usuários em todos os recursos, validação de entradas, formato padrão de erro sem detalhes internos, RLS em todas as tabelas, Actuator fechado, CORS, chave do Gemini fora da URL, bot só em conversa privada e token do bot fora dos logs.
+
 ---
 
 ## Integração contínua
@@ -135,7 +142,7 @@ Cada PR e cada push na `main` rodam o workflow [`ci.yml`](./.github/workflows/ci
 | Job | O que verifica |
 |-----|----------------|
 | `backend` | `./mvnw verify`: todos os testes (inclusive os de integração com PostgreSQL via Testcontainers) e o empacotamento |
-| `bot` | `npm ci` e compilação do TypeScript |
+| `bot` | `npm ci`, compilação do TypeScript e testes (`npm test`) |
 | `docker` | Build das imagens do backend e do bot |
 
 O CI não precisa de nenhum segredo: os testes usam um classificador de IA falso e um banco descartável. A `main` só aceita merge com as três verificações verdes.

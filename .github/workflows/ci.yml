@@ -63,6 +63,9 @@ jobs:
       - name: Compilar
         run: npm run build
 
+      - name: Testar
+        run: npm test
+
   docker:
     name: docker
     runs-on: ubuntu-latest

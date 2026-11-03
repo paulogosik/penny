@@ -24,7 +24,7 @@
 
 O **diferencial principal** é a IA para categorização automática de gastos — as categorias são gerenciadas pelo próprio usuário no painel.
 
-## Estado atual (outubro 2026)
+## Estado atual (novembro 2026)
 
 ### `backend/` — pronto para o bot e para o painel
 - Stack: **Java 21 (target) + Spring Boot 3.5.16 + Maven**, Spring Web, Spring Data JPA, Flyway, Bean Validation, Actuator.
@@ -33,7 +33,7 @@ O **diferencial principal** é a IA para categorização automática de gastos �
 - API completa para o bot (cadastro no `/start`, gasto por texto e por foto) e para o painel (CRUD de categorias, gastos, rendas, cartões, parcelamentos, recorrências, metas, fatura do cartão e dashboard). Ver tabela de endpoints abaixo.
 - IA: Gemini **`gemini-flash-lite-latest`**, com categorias e cartões do próprio usuário, data no fuso do usuário, detecção de parcelas e cartão, e nova tentativa automática em erros temporários (429/5xx).
 - Gastos fixos e renda mensal são **gerados automaticamente** (agendador de hora em hora + na subida da aplicação).
-- **50 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers.
+- **76 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers e uma suíte de segurança: isolamento entre usuários em todos os recursos, validação de entradas, formato de erro, saída da IA, RLS, Actuator, CORS e chave do Gemini.
 
 ### `bot/` — integrado ao backend
 - Stack: **Node.js + TypeScript** (ESM), **grammy** v1.41.1, **dotenv**.
@@ -41,13 +41,15 @@ O **diferencial principal** é a IA para categorização automática de gastos �
 - **Conversa livre, sem árvore de comandos:** o único comando é o `/start` (enviado pelo botão Iniciar do Telegram); depois disso a pessoa só manda texto ou foto.
 - Fluxo: `/start` cadastra a conta e pede o telefone com o botão nativo de compartilhar contato → número salvo → gastos por texto e foto, com resposta formatada (categoria, valor em R$, data, cartão/fatura, parcelas).
 - Cada código de erro do backend vira uma mensagem amigável; `PHONE_NUMBER_REQUIRED` e `USER_NOT_REGISTERED` retomam o cadastro automaticamente.
+- **Só responde em conversa privada**; em grupos fica em silêncio.
+- **37 testes** com o `node:test` (`npm test`), sem rede: Telegram e backend falsos.
 
 ### `panel/` — não iniciado
 - Planejado; a pasta ainda não existe fisicamente. Stack não definido.
 
 ### Infra
-- **Docker:** um `Dockerfile` multi-stage por serviço (`bot/`, `backend/`) e `compose.yaml` na raiz orquestrando tudo (`docker compose up --build`).
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`) em todo PR e push na `main`, com os jobs `backend` (`./mvnw verify`), `bot` (`npm ci` + build) e `docker` (build das duas imagens). A `main` exige os três verdes para merge.
+- **Docker:** um `Dockerfile` multi-stage por serviço (`bot/`, `backend/`) e `compose.yaml` na raiz orquestrando tudo (`docker compose up --build`). O backend é publicado só em `127.0.0.1:8080`.
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) em todo PR e push na `main`, com os jobs `backend` (`./mvnw verify`), `bot` (`npm ci` + build + `npm test`) e `docker` (build das duas imagens). A `main` exige os três verdes para merge.
 - **CD:** ainda não existe — depende de escolher a hospedagem (ver `MEMORY.md`).
 
 ---
@@ -83,6 +85,16 @@ bot/src/
 │   └── errors.ts        # código de erro do backend → mensagem para o usuário
 └── services/
     └── api.ts           # cliente HTTP do backend (ApiError com status e code)
+
+bot/test/
+├── support/
+│   ├── ambiente.ts      # TelegramFalso, BackendFalso, montagem de updates, interceptação de downloads e logs
+│   └── dados.ts         # respostas de exemplo do backend (usuário, gasto)
+├── cadastro.test.ts     # /start e compartilhamento do telefone
+├── gastos.test.ts       # gasto por texto e por foto
+├── erros.test.ts        # código de erro do backend → mensagem
+├── seguranca.test.ts    # grupos, contato alheio, ID de quem enviou, sem parse_mode, token fora dos logs
+└── messages.test.ts     # formatação de valores, datas e gastos
 ```
 
 ### Responsabilidades do bot
@@ -142,7 +154,7 @@ Todas as rotas (exceto `PUT /api/me`, que cadastra) exigem o cabeçalho **`X-Tel
 | `GET` | `/api/dashboard?month=yyyy-MM` | Resumo do mês |
 | `GET` | `/actuator/health` | Healthcheck |
 
-Erros sempre no formato `{ code, message, fields? }`.
+Erros sempre no formato `{ code, message, fields? }`, inclusive 404, 405, 415 e 500 (`INTERNAL_ERROR`, sem detalhes internos; a exceção vai só para o log).
 
 ---
 
@@ -153,10 +165,13 @@ Erros sempre no formato `{ code, message, fields? }`.
   - Saída estruturada com `responseSchema`; `category` e `creditCard` são **enums com os valores do próprio usuário**.
   - Motivo da troca: em out/2026 toda a linha Flash principal (`gemini-flash-latest`, `3-flash-preview`, `3.5`/`3.6`/`3.7`/`3.8-flash`) respondia 503 por sobrecarga; a linha Flash-Lite estava estável. Alias continua evitando 404 quando o Google aposenta versões.
   - Nova tentativa automática (até 3, backoff 1s/2s) em 429/500/502/503/504; erros 4xx não são repetidos.
+  - Saída da IA tratada como não confiável: categoria e cartão só valem se forem do próprio usuário e estiverem ativos (senão "Outros"/sem cartão), valor acima de 9.999.999.999,99 → `AMOUNT_TOO_LARGE`, descrição cortada em 200 caracteres, parcelas acima de 99 recusadas.
   - A IA fica atrás da interface `ExpenseClassifier` (implementação `GeminiExpenseClassifier`), o que permite um classificador falso nos testes.
   - A chamada à IA acontece **fora da transação** do banco (`TransactionTemplate` só para persistir), para não segurar conexão do pool (5 conexões) por até 60s.
 - **Backend em Java + Spring Boot** — padrão Controller → Service → Repository.
 - **Bot como camada fina** — validações técnicas apenas; lógica no backend.
+- **Bot só em conversa privada** (`bot.chatType("private")`, decisão de nov/2026): em grupo, a resposta mostraria os gastos de uma pessoa para todos, e o botão de compartilhar contato nem funciona lá.
+- **Backend publicado só em `127.0.0.1` no Compose** enquanto não houver login: qualquer um na mesma rede poderia se passar por qualquer usuário pelo cabeçalho. O bot fala com ele pela rede interna do Compose.
 - **Monorepo** — bot, backend e painel no mesmo repositório, em pastas irmãs.
 - **Bytecode alvo Java 21** — o app roda normalmente no JVM 25 da máquina de dev; no Docker roda em JRE 21.
 - **Docker:** um `Dockerfile` multi-stage **por serviço** + `compose.yaml` na raiz como orquestrador único. Container único rodando tudo foi descartado (anti-padrão: imagem com Node + Java, sem reinício/escala independentes).
@@ -175,7 +190,7 @@ Erros sempre no formato `{ code, message, fields? }`.
   - **Recorrentes viram lançamentos reais** quando o dia chega (dia 31 em mês de 30 dias → último dia). `last_generated_month` impede que um lançamento apagado pelo usuário seja recriado.
   - **Pagar a fatura não gera gasto** (as compras já foram registradas).
   - Valores em `numeric(12,2)` ↔ `BigDecimal`.
-- **Identificação do usuário:** cabeçalho `X-Telegram-User-Id`, resolvido para `@CurrentUser User` num único `HandlerMethodArgumentResolver`. **Provisório** até existir login no painel — a troca fica concentrada nesse resolver.
+- **Identificação do usuário:** cabeçalho `X-Telegram-User-Id` (inteiro positivo; 0, negativo ou não numérico → `INVALID_HEADER`), resolvido para `@CurrentUser User` num único `HandlerMethodArgumentResolver`. **Provisório** até existir login no painel — a troca fica concentrada nesse resolver.
 - **Telefone (decisão de out/2026):**
   - **Obrigatório** e pedido no primeiro contato, explicando que serve para entrar no painel sem senha.
   - Capturado pelo botão nativo do Telegram (`request_contact`); o bot só aceita se `contact.user_id` for de quem enviou (impede compartilhar o contato de outra pessoa).
@@ -203,6 +218,7 @@ Erros sempre no formato `{ code, message, fields? }`.
 - **Testcontainers** (`spring-boot-testcontainers`, `junit-jupiter`, `postgresql`): testes de integração contra Postgres 17 real (requer Docker).
 - **Maven Wrapper (`./mvnw`)** commitado.
 - Sem SDK do Gemini e sem lib de `.env`: `RestClient` + Jackson + `spring.config.import`.
+- **Bot sem lib de teste:** `node:test` + `node:assert/strict` do próprio Node; os testes são compilados pelo `tsc` (`tsconfig.test.json` → `build-test/`), sem depender do `ts-node`.
 
 ## Padrões de código
 - **Sem comentários no código**, em nenhum arquivo (inclusive testes e configs). Pendências ficam no `MEMORY.md`, não em `TODO` no código.
@@ -222,6 +238,8 @@ Erros sempre no formato `{ code, message, fields? }`.
   - Colunas `smallint` mapeadas como `Integer` com `@JdbcTypeCode(SqlTypes.SMALLINT)`.
   - Datas "de hoje" sempre via `Clock` injetado + fuso do usuário, nunca `LocalDate.now()` puro.
 - **Testes:** classe base `IntegrationTest` (MockMvc + Testcontainers + `FakeExpenseClassifier` + `MutableClock`); cada teste cria seu próprio usuário com ID único em vez de limpar o banco.
+  - Segurança do backend em `TenantIsolationTest`, `RequestHardeningTest`, `AiOutputHandlingTest` e `PlatformSecurityTest`. **Recurso novo entra no `TenantIsolationTest`** (outro usuário recebe 404 em leitura, edição, remoção e referência). Tabela nova precisa de RLS, senão o `PlatformSecurityTest` falha.
+  - Bot: `test/*.test.ts` com descrições em português; `TelegramFalso` captura as chamadas à Bot API, `BackendFalso` é um servidor HTTP local, `interceptarDownloads` simula o download de fotos e `capturarErros` silencia e lê o `console.error`.
 - **CI:** testes nunca podem depender de segredos ou serviços externos reais (Gemini, Supabase, Telegram) — senão quebram no GitHub Actions. Um PR só vai para merge com o CI verde.
 
 ## Problemas e soluções
@@ -237,6 +255,8 @@ Erros sempre no formato `{ code, message, fields? }`.
 - **`ALTER TABLE flyway_schema_history` dentro de migration trava** (o Flyway mantém a tabela em uso) → RLS da tabela do Flyway via callback `afterMigrate.sql`.
 - **`docker compose logs` mostra logs de execuções antigas** se o container só reiniciou: usar `--force-recreate` e `--since`.
 - **Backend em loop de falha de senha** pode levar o Supabase a bloquear o IP: parar o container (`docker compose stop backend`) assim que o erro aparecer.
+- **`node --test` não roda o TypeScript do bot direto** (os imports usam `.js`): os testes são compilados antes com `tsconfig.test.json`.
+- **Porta `"8080:8080"` no Compose abre para a rede toda** (o Docker Desktop publica em `0.0.0.0`): usar `"127.0.0.1:8080:8080"`.
 
 ---
 
@@ -244,8 +264,9 @@ Erros sempre no formato `{ code, message, fields? }`.
 Detalhes e status em [`MEMORY.md`](./MEMORY.md).
 - **Painel (segundo momento):** definir stack; login com código pelo Telegram; consumir a API existente.
 - **CD:** escolher hospedagem (bot precisa de processo sempre ligado), publicar imagens no GHCR e fazer deploy a cada merge na `main`.
-- **Backend:** rotas do login por código + sessão do painel (trocar o resolver de usuário), chave de API entre bot e backend, recibos no Supabase Storage (`receipt_path`), deploy.
+- **Backend:** rotas do login por código + sessão do painel (trocar o resolver de usuário), chave de API entre bot e backend, limite de tamanho de requisição e de uso (rate limit), recibos no Supabase Storage (`receipt_path`), deploy.
 - **Bot:** hoje cartões só são criados pela API (o painel ainda não existe), então compras parceladas pelo bot dependem disso.
+- **Bot:** processar mensagens em paralelo (grammY runner): hoje uma chamada lenta à IA segura as mensagens de todo mundo.
 
 ---
 
