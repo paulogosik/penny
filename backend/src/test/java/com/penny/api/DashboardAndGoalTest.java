@@ -20,11 +20,11 @@ class DashboardAndGoalTest extends IntegrationTest {
         createCard(user, "Nubank", 3, 10);
 
         classifier.willReturn("Mercado", "125.00", LocalDate.of(2026, 10, 2), "Feira");
-        postAs(user, "/api/expenses/text", "{\"text\":\"feira 125\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"feira 125\"}").andExpect(status().isCreated());
         classifier.willReturn("Restaurante", "60.00", LocalDate.of(2026, 10, 2), "Pizza", 1, "Nubank");
-        postAs(user, "/api/expenses/text", "{\"text\":\"pizza 60 no nubank\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"pizza 60 no nubank\"}").andExpect(status().isCreated());
         classifier.willReturn("Lazer", "40.00", LocalDate.of(2026, 9, 30), "Show");
-        postAs(user, "/api/expenses/text", "{\"text\":\"show 40 ontem\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"show 40 ontem\"}").andExpect(status().isCreated());
         postAs(user, "/api/incomes",
             "{\"categoryId\":\"%s\",\"amount\":3000,\"description\":\"Salário\",\"receivedOn\":\"2026-10-05\"}".formatted(incomeCategoryId(user, "Salário")))
             .andExpect(status().isCreated());

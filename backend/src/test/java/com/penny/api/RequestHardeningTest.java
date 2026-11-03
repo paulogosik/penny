@@ -59,7 +59,7 @@ class RequestHardeningTest extends IntegrationTest {
         mvc.perform(patch("/api/expenses").header(HEADER, user))
             .andExpect(status().isMethodNotAllowed())
             .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
-        mvc.perform(post("/api/expenses/text").header(HEADER, user).contentType(MediaType.TEXT_PLAIN).content("gastei 10"))
+        mvc.perform(post("/api/messages/text").header(HEADER, user).contentType(MediaType.TEXT_PLAIN).content("gastei 10"))
             .andExpect(status().isUnsupportedMediaType())
             .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
     }
@@ -71,7 +71,7 @@ class RequestHardeningTest extends IntegrationTest {
         jdbc.update("delete from expense_categories where user_id = ? and is_fallback", UUID.fromString(userId));
         classifier.willReturn("Categoria Inexistente", "10.00", LocalDate.of(2026, 10, 13), "Teste");
 
-        String response = postAs(user, "/api/expenses/text", "{\"text\":\"gastei 10\"}")
+        String response = postAs(user, "/api/messages/text", "{\"text\":\"gastei 10\"}")
             .andExpect(status().isInternalServerError())
             .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
             .andReturn().getResponse().getContentAsString();
@@ -121,7 +121,7 @@ class RequestHardeningTest extends IntegrationTest {
         String category = categoryId(user, "Mercado");
         String card = createCard(user, "Nubank", 3, 10);
 
-        postAs(user, "/api/expenses/text", "{\"text\":\"%s\"}".formatted("a".repeat(1001)))
+        postAs(user, "/api/messages/text", "{\"text\":\"%s\"}".formatted("a".repeat(1001)))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.fields.text").exists());
         putAs(user, "/api/me", "{\"name\":\"%s\"}".formatted("n".repeat(101)))

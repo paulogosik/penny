@@ -23,13 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.text.Normalizer;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -46,7 +45,7 @@ public class ExpenseService {
     private static final int MAX_INSTALLMENTS = 99;
     private static final int MAX_DESCRIPTION_LENGTH = 200;
     private static final int MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-    private static final BigDecimal MAX_AMOUNT = new BigDecimal("9999999999.99");
+    static final BigDecimal MAX_AMOUNT = new BigDecimal("9999999999.99");
 
     private final ExpenseRepository expenses;
     private final ExpenseCategoryRepository categories;
@@ -77,16 +76,14 @@ public class ExpenseService {
         this.clock = clock;
     }
 
-    public ExpenseResponse recordFromText(User user, String text) {
-        ensurePhoneNumber(user);
-        ClassifiedExpense classified = classifier.classifyText(text.strip(), contextFor(user));
-        return transactionTemplate.execute(status -> record(user, classified, ExpenseSource.TELEGRAM_TEXT, text.strip()));
+    public ExpenseResponse recordFromText(User user, ClassifiedExpense classified, String rawInput) {
+        return transactionTemplate.execute(status -> record(user, classified, ExpenseSource.TELEGRAM_TEXT, rawInput));
     }
 
     public ExpenseResponse recordFromReceipt(User user, String imageBase64, String mimeType) {
-        ensurePhoneNumber(user);
+        PhoneNumbers.ensurePresent(user);
         byte[] image = decodeImage(imageBase64);
-        ClassifiedExpense classified = classifier.classifyReceipt(image, mimeType, contextFor(user));
+        ClassifiedExpense classified = classifier.classifyReceipt(image, mimeType, classificationContext(user));
         return transactionTemplate.execute(status -> record(user, classified, ExpenseSource.TELEGRAM_PHOTO, null));
     }
 
@@ -146,14 +143,17 @@ public class ExpenseService {
             throw new BusinessRuleException("AMOUNT_TOO_LARGE", "Esse valor é alto demais para ser registrado.");
         }
         ExpenseCategory category = resolveCategory(user, classified.category());
-        CreditCard card = resolveCreditCard(user, classified.creditCard());
+        CreditCard card = source == ExpenseSource.TELEGRAM_PHOTO
+            ? findCreditCard(user, classified.creditCard()).orElse(null)
+            : mentionedCreditCard(user, classified.creditCard());
         String description = describe(classified.description(), category);
 
         if (classified.installments() > 1) {
             if (card == null) {
                 throw new BusinessRuleException(
                     "INSTALLMENTS_REQUIRE_CREDIT_CARD",
-                    "Compras parceladas precisam de um cartão cadastrado. Cadastre o cartão no painel e diga qual foi usado, ex.: \"em 6x no Nubank\"."
+                    "Compras parceladas precisam de um cartão. Diga qual foi usado, por exemplo \"em 6x no Nubank\". "
+                        + "Se o cartão ainda não está cadastrado, me mande: \"meu cartão Nubank fecha dia 3 e vence dia 10\"."
                 );
             }
             if (classified.installments() > MAX_INSTALLMENTS) {
@@ -177,7 +177,7 @@ public class ExpenseService {
         return ExpenseResponse.from(expenses.saveAndFlush(expense));
     }
 
-    private ClassificationContext contextFor(User user) {
+    public ClassificationContext classificationContext(User user) {
         List<ExpenseCategory> active = categories.findByUserAndArchivedAtIsNullOrderByName(user);
         String fallback = active.stream()
             .filter(ExpenseCategory::isFallback)
@@ -198,23 +198,31 @@ public class ExpenseService {
 
     private ExpenseCategory resolveCategory(User user, String name) {
         return categories.findByUserAndArchivedAtIsNullOrderByName(user).stream()
-            .filter(category -> normalize(category.getName()).equals(normalize(name)))
+            .filter(category -> Names.normalize(category.getName()).equals(Names.normalize(name)))
             .findFirst()
             .orElseGet(() -> categories.findByUserAndFallbackTrue(user)
                 .orElseThrow(() -> new IllegalStateException("Usuário sem categoria de reserva: " + user.getId())));
     }
 
-    private CreditCard resolveCreditCard(User user, String name) {
+    private CreditCard mentionedCreditCard(User user, String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
-        String wanted = normalize(name);
+        return findCreditCard(user, name).orElseThrow(() -> new BusinessRuleException(
+            "CREDIT_CARD_NOT_REGISTERED",
+            "Não encontrei o cartão " + name.strip() + ". Para cadastrar, me mande: \"meu cartão " + name.strip()
+                + " fecha dia 5 e vence dia 12\"."
+        ));
+    }
+
+    private Optional<CreditCard> findCreditCard(User user, String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        String wanted = Names.normalize(name);
         List<CreditCard> active = creditCards.findByUserAndArchivedAtIsNullOrderByName(user);
-        return active.stream()
-            .filter(card -> normalize(card.getName()).equals(wanted))
-            .findFirst()
-            .or(() -> active.stream().filter(card -> wanted.contains(normalize(card.getName()))).findFirst())
-            .orElse(null);
+        return CreditCardNames.sameName(active, name.strip())
+            .or(() -> active.stream().filter(card -> wanted.contains(Names.normalize(card.getName()))).findFirst());
     }
 
     private void apply(User user, Expense expense, ExpenseRequest request) {
@@ -229,15 +237,6 @@ public class ExpenseService {
     private Expense find(User user, UUID id) {
         return expenses.findByIdAndUser(id, user)
             .orElseThrow(() -> new NotFoundException("EXPENSE_NOT_FOUND", "Gasto não encontrado."));
-    }
-
-    private void ensurePhoneNumber(User user) {
-        if (!user.hasPhoneNumber()) {
-            throw new BusinessRuleException(
-                "PHONE_NUMBER_REQUIRED",
-                "Compartilhe seu número de telefone para começar a registrar gastos."
-            );
-        }
     }
 
     private void ensureNotInstallment(Expense expense) {
@@ -265,13 +264,5 @@ public class ExpenseService {
     private static String describe(String description, ExpenseCategory category) {
         String value = description == null || description.isBlank() ? category.getName() : description.strip();
         return value.length() <= MAX_DESCRIPTION_LENGTH ? value : value.substring(0, MAX_DESCRIPTION_LENGTH);
-    }
-
-    private static String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        String withoutAccents = Normalizer.normalize(value, Normalizer.Form.NFD).replaceAll("\\p{M}", "");
-        return withoutAccents.strip().toLowerCase(Locale.ROOT);
     }
 }

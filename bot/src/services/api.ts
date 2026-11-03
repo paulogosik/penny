@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ExpenseResponse, UserResponse } from "../types.js";
+import type { ApiErrorBody, ExpenseResponse, MessageResponse, UserResponse } from "../types.js";
 
 const REQUEST_TIMEOUT_MS = 90_000;
 
@@ -21,8 +21,8 @@ export function salvarTelefone(telegramUserId: number, phoneNumber: string): Pro
   return request(telegramUserId, "PUT", "/api/me/phone", { phoneNumber });
 }
 
-export function registrarGastoTexto(telegramUserId: number, text: string): Promise<ExpenseResponse> {
-  return request(telegramUserId, "POST", "/api/expenses/text", { text });
+export function enviarMensagem(telegramUserId: number, text: string): Promise<MessageResponse> {
+  return request(telegramUserId, "POST", "/api/messages/text", { text });
 }
 
 export function registrarGastoFoto(

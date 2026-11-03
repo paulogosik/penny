@@ -1,8 +1,8 @@
 import { Bot, type BotConfig, type Context } from "grammy";
 import { handleContact } from "./handlers/contact.js";
-import { handleTextExpense } from "./handlers/expense.js";
 import { handlePhoto } from "./handlers/photo.js";
 import { handleStart } from "./handlers/start.js";
+import { handleText } from "./handlers/text.js";
 
 export function createBot(token: string, config?: BotConfig<Context>): Bot {
   const bot = new Bot(token, config);
@@ -11,7 +11,7 @@ export function createBot(token: string, config?: BotConfig<Context>): Bot {
   privado.command("start", handleStart);
   privado.on("message:contact", handleContact);
   privado.on("message:photo", handlePhoto);
-  privado.on("message:text", handleTextExpense);
+  privado.on("message:text", handleText);
 
   bot.catch((err) => {
     console.error("Erro no bot:", err);

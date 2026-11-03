@@ -34,7 +34,7 @@ class CategoryAndCardManagementTest extends IntegrationTest {
         assertThat(all.findValuesAsText("name")).doesNotContain("Lazer");
 
         classifier.willReturn("Mercado", "30.00", LocalDate.of(2026, 10, 13), "Pão");
-        postAs(user, "/api/expenses/text", "{\"text\":\"pão 30\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"pão 30\"}").andExpect(status().isCreated());
         String mercado = categoryId(user, "Mercado");
         deleteAs(user, "/api/expense-categories/" + mercado).andExpect(status().isNoContent());
 
@@ -91,7 +91,7 @@ class CategoryAndCardManagementTest extends IntegrationTest {
 
         String used = createCard(user, "Nubank", 3, 10);
         classifier.willReturn("Compras", "50.00", LocalDate.of(2026, 10, 13), "Livro", 1, "Nubank");
-        postAs(user, "/api/expenses/text", "{\"text\":\"livro 50 no nubank\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"livro 50 no nubank\"}").andExpect(status().isCreated());
         deleteAs(user, "/api/credit-cards/" + used).andExpect(status().isNoContent());
         getAs(user, "/api/credit-cards").andExpect(jsonPath("$.length()").value(0));
         getAs(user, "/api/credit-cards?includeArchived=true")
@@ -103,9 +103,9 @@ class CategoryAndCardManagementTest extends IntegrationTest {
         long user = registerUser();
         String card = createCard(user, "Nubank", 3, 10);
         classifier.willReturn("Compras", "90.00", LocalDate.of(2026, 10, 13), "Mochila", 3, "Nubank");
-        postAs(user, "/api/expenses/text", "{\"text\":\"mochila 90 em 3x no nubank\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"mochila 90 em 3x no nubank\"}").andExpect(status().isCreated());
         classifier.willReturn("Restaurante", "45.50", LocalDate.of(2026, 10, 20), "Jantar", 1, "Nubank");
-        postAs(user, "/api/expenses/text", "{\"text\":\"jantar 45,50 no nubank\"}").andExpect(status().isCreated());
+        postAs(user, "/api/messages/text", "{\"text\":\"jantar 45,50 no nubank\"}").andExpect(status().isCreated());
 
         getAs(user, "/api/credit-cards/" + card + "/statements/2026-11")
             .andExpect(status().isOk())

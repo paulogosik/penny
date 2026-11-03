@@ -30,19 +30,19 @@ O **diferencial principal** é a IA para categorização automática de gastos �
 - Stack: **Java 21 (target) + Spring Boot 3.5.16 + Maven**, Spring Web, Spring Data JPA, Flyway, Bean Validation, Actuator.
 - Banco: **PostgreSQL no Supabase** (Session pooler), schema versionado com **Flyway** (`V1` schema inicial, `V2` controle de geração dos recorrentes, `V3` telefone do usuário) e **RLS ligado em todas as tabelas**.
 - **Telefone obrigatório** para registrar gastos (`PUT /api/me/phone`; sem número, as rotas de gasto do bot respondem `PHONE_NUMBER_REQUIRED`).
-- API completa para o bot (cadastro no `/start`, gasto por texto e por foto) e para o painel (CRUD de categorias, gastos, rendas, cartões, parcelamentos, recorrências, metas, fatura do cartão e dashboard). Ver tabela de endpoints abaixo.
-- IA: Gemini **`gemini-flash-lite-latest`**, com categorias e cartões do próprio usuário, data no fuso do usuário, detecção de parcelas e cartão, e nova tentativa automática em erros temporários (429/5xx).
+- API completa para o bot (cadastro no `/start`, mensagem de texto — gasto ou cadastro de cartão — e gasto por foto) e para o painel (CRUD de categorias, gastos, rendas, cartões, parcelamentos, recorrências, metas, fatura do cartão e dashboard). Ver tabela de endpoints abaixo.
+- IA: Gemini **`gemini-flash-lite-latest`**, com categorias e cartões do próprio usuário, data no fuso do usuário, detecção de parcelas e cartão, reconhecimento de cadastro de cartão no texto, e nova tentativa automática em erros temporários (429/5xx).
 - Gastos fixos e renda mensal são **gerados automaticamente** (agendador de hora em hora + na subida da aplicação).
-- **76 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers e uma suíte de segurança: isolamento entre usuários em todos os recursos, validação de entradas, formato de erro, saída da IA, RLS, Actuator, CORS e chave do Gemini.
+- **101 testes** automatizados (`./mvnw test`), incluindo integração contra PostgreSQL real via Testcontainers e uma suíte de segurança: isolamento entre usuários em todos os recursos, validação de entradas, formato de erro, saída da IA, RLS, Actuator, CORS e chave do Gemini.
 
 ### `bot/` — integrado ao backend
 - Stack: **Node.js + TypeScript** (ESM), **grammy** v1.41.1, **dotenv**.
 - `npm run dev` (ts-node) para desenvolvimento; `npm run build` + `npm start` (ou Docker) para produção.
 - **Conversa livre, sem árvore de comandos:** o único comando é o `/start` (enviado pelo botão Iniciar do Telegram); depois disso a pessoa só manda texto ou foto.
-- Fluxo: `/start` cadastra a conta e pede o telefone com o botão nativo de compartilhar contato → número salvo → gastos por texto e foto, com resposta formatada (categoria, valor em R$, data, cartão/fatura, parcelas).
+- Fluxo: `/start` cadastra a conta e pede o telefone com o botão nativo de compartilhar contato → número salvo → gastos por texto e foto, com resposta formatada (categoria, valor em R$, data, cartão/fatura, parcelas), e cadastro de cartão por frase livre ("meu cartão Nubank fecha dia 3 e vence dia 10").
 - Cada código de erro do backend vira uma mensagem amigável; `PHONE_NUMBER_REQUIRED` e `USER_NOT_REGISTERED` retomam o cadastro automaticamente.
 - **Só responde em conversa privada**; em grupos fica em silêncio.
-- **37 testes** com o `node:test` (`npm test`), sem rede: Telegram e backend falsos.
+- **49 testes** com o `node:test` (`npm test`), sem rede: Telegram e backend falsos.
 
 ### `panel/` — não iniciado
 - Planejado; a pasta ainda não existe fisicamente. Stack não definido.
@@ -80,7 +80,7 @@ bot/src/
 │   ├── start.ts         # /start
 │   ├── onboarding.ts    # cadastro + pedido de telefone (reusado por vários handlers)
 │   ├── contact.ts       # recebe o contato compartilhado e salva o telefone
-│   ├── expense.ts       # gasto por texto
+│   ├── text.ts          # mensagem de texto: gasto ou cadastro de cartão
 │   ├── photo.ts         # gasto por foto de recibo (baixa e converte para base64)
 │   └── errors.ts        # código de erro do backend → mensagem para o usuário
 └── services/
@@ -92,6 +92,7 @@ bot/test/
 │   └── dados.ts         # respostas de exemplo do backend (usuário, gasto)
 ├── cadastro.test.ts     # /start e compartilhamento do telefone
 ├── gastos.test.ts       # gasto por texto e por foto
+├── cartao.test.ts       # cadastro e atualização de cartão pela conversa
 ├── erros.test.ts        # código de erro do backend → mensagem
 ├── seguranca.test.ts    # grupos, contato alheio, ID de quem enviou, sem parse_mode, token fora dos logs
 └── messages.test.ts     # formatação de valores, datas e gastos
@@ -141,7 +142,7 @@ Todas as rotas (exceto `PUT /api/me`, que cadastra) exigem o cabeçalho **`X-Tel
 |--------|------|-----|
 | `PUT` / `GET` | `/api/me` | Cadastro idempotente (cria categorias padrão) / perfil |
 | `PUT` | `/api/me/phone` | Salva o telefone (normalizado para E.164, único por conta) |
-| `POST` | `/api/expenses/text` | Bot: texto → IA → gasto salvo (parcelado vira plano) |
+| `POST` | `/api/messages/text` | Bot: texto → IA → gasto salvo (parcelado vira plano) ou cartão cadastrado/atualizado; resposta com `type` `expense`, `credit_card_created` ou `credit_card_updated` |
 | `POST` | `/api/expenses/photo` | Bot: foto de recibo (base64) → IA → gasto salvo |
 | `GET` `POST` `PUT` `DELETE` | `/api/expenses` | Painel: listagem paginada com filtros e CRUD manual |
 | `GET` `POST` `DELETE` | `/api/installment-plans` | Compras parceladas |
@@ -162,14 +163,19 @@ Erros sempre no formato `{ code, message, fields? }`, inclusive 404, 405, 415 e 
 
 - **Provider de IA: Google Gemini**, modelo **`gemini-flash-lite-latest`** (decisão de outubro/2026).
   - Chamada via HTTP direto com o `RestClient` (sem SDK), chave no cabeçalho `x-goog-api-key` (não na URL).
-  - Saída estruturada com `responseSchema`; `category` e `creditCard` são **enums com os valores do próprio usuário**.
+  - Saída estruturada com `responseSchema`. No texto, a IA diz o tipo da mensagem (`kind`: `expense`, `credit_card` ou `other`); `category` é **enum com as categorias do próprio usuário** e `creditCard` é texto livre (o nome citado), conferido pelo backend. Na foto, `creditCard` é enum com os cartões do usuário.
   - Motivo da troca: em out/2026 toda a linha Flash principal (`gemini-flash-latest`, `3-flash-preview`, `3.5`/`3.6`/`3.7`/`3.8-flash`) respondia 503 por sobrecarga; a linha Flash-Lite estava estável. Alias continua evitando 404 quando o Google aposenta versões.
   - Nova tentativa automática (até 3, backoff 1s/2s) em 429/500/502/503/504; erros 4xx não são repetidos.
-  - Saída da IA tratada como não confiável: categoria e cartão só valem se forem do próprio usuário e estiverem ativos (senão "Outros"/sem cartão), valor acima de 9.999.999.999,99 → `AMOUNT_TOO_LARGE`, descrição cortada em 200 caracteres, parcelas acima de 99 recusadas.
-  - A IA fica atrás da interface `ExpenseClassifier` (implementação `GeminiExpenseClassifier`), o que permite um classificador falso nos testes.
+  - Saída da IA tratada como não confiável: categoria só vale se for do próprio usuário e estiver ativa (senão "Outros"); cartão citado no texto que não é um cartão ativo do usuário → `CREDIT_CARD_NOT_REGISTERED` (na foto, é ignorado); valor acima de 9.999.999.999,99 → `AMOUNT_TOO_LARGE`, descrição cortada em 200 caracteres, parcelas acima de 99 recusadas.
+  - A IA fica atrás da interface `ExpenseClassifier` (implementação `GeminiExpenseClassifier`), o que permite um classificador falso nos testes. `classifyText` devolve um `ClassifiedMessage` (gasto, cartão ou não entendido); `classifyReceipt` devolve um gasto. O `MessageService` decide o que fazer com cada tipo.
   - A chamada à IA acontece **fora da transação** do banco (`TransactionTemplate` só para persistir), para não segurar conexão do pool (5 conexões) por até 60s.
 - **Backend em Java + Spring Boot** — padrão Controller → Service → Repository.
 - **Bot como camada fina** — validações técnicas apenas; lógica no backend.
+- **Cartão pelo bot por frase livre** (decisões do usuário, nov/2026):
+  - A IA reconhece o cadastro na mesma chamada do gasto; não há conversa guiada nem estado entre mensagens.
+  - Faltando nome, fechamento ou vencimento → `CREDIT_CARD_DETAILS_MISSING`, com o que falta e um exemplo. Dia fora de 1–31 → `INVALID_CREDIT_CARD_DAY`. Limite opcional; negativo é ignorado.
+  - Mesmo nome de um cartão ativo (ignorando maiúsculas e acentos, com prioridade para a mesma grafia) **atualiza** fechamento, vencimento e, se vier, o limite. Gastos já lançados ficam na fatura em que estavam. Cartão removido não conta.
+  - Compra por texto que cita cartão não cadastrado, removido ou de outra pessoa é **recusada** (`CREDIT_CARD_NOT_REGISTERED`) com a frase de cadastro como exemplo. Mensagem que não é gasto nem cartão → `MESSAGE_NOT_UNDERSTOOD`.
 - **Bot só em conversa privada** (`bot.chatType("private")`, decisão de nov/2026): em grupo, a resposta mostraria os gastos de uma pessoa para todos, e o botão de compartilhar contato nem funciona lá.
 - **Backend publicado só em `127.0.0.1` no Compose** enquanto não houver login: qualquer um na mesma rede poderia se passar por qualquer usuário pelo cabeçalho. O bot fala com ele pela rede interna do Compose.
 - **Monorepo** — bot, backend e painel no mesmo repositório, em pastas irmãs.
@@ -239,6 +245,7 @@ Erros sempre no formato `{ code, message, fields? }`, inclusive 404, 405, 415 e 
   - Datas "de hoje" sempre via `Clock` injetado + fuso do usuário, nunca `LocalDate.now()` puro.
 - **Testes:** classe base `IntegrationTest` (MockMvc + Testcontainers + `FakeExpenseClassifier` + `MutableClock`); cada teste cria seu próprio usuário com ID único em vez de limpar o banco.
   - Segurança do backend em `TenantIsolationTest`, `RequestHardeningTest`, `AiOutputHandlingTest` e `PlatformSecurityTest`. **Recurso novo entra no `TenantIsolationTest`** (outro usuário recebe 404 em leitura, edição, remoção e referência). Tabela nova precisa de RLS, senão o `PlatformSecurityTest` falha.
+  - **Funcionalidade nova começa pelos testes** (pedido do usuário, nov/2026): especificação → testes → revisão independente dos testes (agente que só vê a especificação e os testes) → rodar contra um esqueleto só com tipos e ver falhar → código → plantar bugs para conferir que os testes pegam.
   - Bot: `test/*.test.ts` com descrições em português; `TelegramFalso` captura as chamadas à Bot API, `BackendFalso` é um servidor HTTP local, `interceptarDownloads` simula o download de fotos e `capturarErros` silencia e lê o `console.error`.
 - **CI:** testes nunca podem depender de segredos ou serviços externos reais (Gemini, Supabase, Telegram) — senão quebram no GitHub Actions. Um PR só vai para merge com o CI verde.
 
@@ -256,6 +263,7 @@ Erros sempre no formato `{ code, message, fields? }`, inclusive 404, 405, 415 e 
 - **`docker compose logs` mostra logs de execuções antigas** se o container só reiniciou: usar `--force-recreate` e `--since`.
 - **Backend em loop de falha de senha** pode levar o Supabase a bloquear o IP: parar o container (`docker compose stop backend`) assim que o erro aparecer.
 - **`node --test` não roda o TypeScript do bot direto** (os imports usam `.js`): os testes são compilados antes com `tsconfig.test.json`.
+- **`jsonPath(...).doesNotExist()` passa quando o campo vem `null`:** para garantir que o campo não aparece, usar `assertThat(body(...).has("campo")).isFalse()`.
 - **Porta `"8080:8080"` no Compose abre para a rede toda** (o Docker Desktop publica em `0.0.0.0`): usar `"127.0.0.1:8080:8080"`.
 
 ---
@@ -265,7 +273,6 @@ Detalhes e status em [`MEMORY.md`](./MEMORY.md).
 - **Painel (segundo momento):** definir stack; login com código pelo Telegram; consumir a API existente.
 - **CD:** escolher hospedagem (bot precisa de processo sempre ligado), publicar imagens no GHCR e fazer deploy a cada merge na `main`.
 - **Backend:** rotas do login por código + sessão do painel (trocar o resolver de usuário), chave de API entre bot e backend, limite de tamanho de requisição e de uso (rate limit), recibos no Supabase Storage (`receipt_path`), deploy.
-- **Bot:** hoje cartões só são criados pela API (o painel ainda não existe), então compras parceladas pelo bot dependem disso.
 - **Bot:** processar mensagens em paralelo (grammY runner): hoje uma chamada lenta à IA segura as mensagens de todo mundo.
 
 ---

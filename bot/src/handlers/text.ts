@@ -1,11 +1,11 @@
 import type { Context } from "grammy";
-import { formatarGasto, mensagens } from "../messages.js";
-import { registrarGastoTexto } from "../services/api.js";
+import { formatarResposta, mensagens } from "../messages.js";
+import { enviarMensagem } from "../services/api.js";
 import { responderErro } from "./errors.js";
 
 const TAMANHO_MAXIMO_TEXTO = 1000;
 
-export async function handleTextExpense(ctx: Context): Promise<void> {
+export async function handleText(ctx: Context): Promise<void> {
   const texto = ctx.message?.text?.trim();
   const from = ctx.from;
   if (!texto || !from) return;
@@ -21,8 +21,8 @@ export async function handleTextExpense(ctx: Context): Promise<void> {
 
   await ctx.replyWithChatAction("typing");
   try {
-    const gasto = await registrarGastoTexto(from.id, texto);
-    await ctx.reply(formatarGasto(gasto));
+    const resposta = await enviarMensagem(from.id, texto);
+    await ctx.reply(formatarResposta(resposta));
   } catch (err) {
     await responderErro(ctx, err);
   }

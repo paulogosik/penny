@@ -32,6 +32,19 @@ export interface ExpenseResponse {
   createdAt: string;
 }
 
+export interface CreditCardResponse {
+  id: string;
+  name: string;
+  closingDay: number;
+  dueDay: number;
+  creditLimit: number | null;
+  archived: boolean;
+}
+
+export type MessageResponse =
+  | { type: "expense"; expense: ExpenseResponse }
+  | { type: "credit_card_created" | "credit_card_updated"; creditCard: CreditCardResponse };
+
 export interface ApiErrorBody {
   code: string;
   message: string;
