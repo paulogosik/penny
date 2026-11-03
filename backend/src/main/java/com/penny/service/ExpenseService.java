@@ -22,6 +22,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -45,6 +46,7 @@ public class ExpenseService {
     private static final int MAX_INSTALLMENTS = 99;
     private static final int MAX_DESCRIPTION_LENGTH = 200;
     private static final int MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+    private static final BigDecimal MAX_AMOUNT = new BigDecimal("9999999999.99");
 
     private final ExpenseRepository expenses;
     private final ExpenseCategoryRepository categories;
@@ -139,6 +141,9 @@ public class ExpenseService {
                 "AMOUNT_NOT_FOUND",
                 "Não consegui identificar o valor do gasto. Tente algo como \"gastei 45 no mercado\"."
             );
+        }
+        if (classified.amount().compareTo(MAX_AMOUNT) > 0) {
+            throw new BusinessRuleException("AMOUNT_TOO_LARGE", "Esse valor é alto demais para ser registrado.");
         }
         ExpenseCategory category = resolveCategory(user, classified.category());
         CreditCard card = resolveCreditCard(user, classified.creditCard());
